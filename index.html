@@ -361,6 +361,7 @@
     ageThreshold: 30
   };
   var siteLayers = {}; // id -> leaflet layer
+  var VWORLD_DATA_BASE = 'https://vworld-proxy.woonqk2.workers.dev'; // CORS 우회용 중계 서버
 
   /* ---------- 지도 초기화 (인천 중심) ---------- */
   var map = L.map('map',{zoomControl:false,doubleClickZoom:false}).setView([37.4563,126.7052],14);
@@ -531,7 +532,7 @@
       b.getEast()+' '+b.getNorth()+','+
       b.getWest()+' '+b.getNorth()+','+
       b.getWest()+' '+b.getSouth()+'))';
-    var url = 'https://api.vworld.kr/req/data?service=data&request=GetFeature&version=2.0'
+    var url = VWORLD_DATA_BASE+'?service=data&request=GetFeature&version=2.0'
       +'&data=LT_C_SPBD&key='+encodeURIComponent(state.vworldKey)
       +'&domain='+encodeURIComponent(location.origin||location.href)
       +'&geomFilter='+encodeURIComponent(geom)
@@ -575,7 +576,7 @@
       b.getEast()+' '+b.getNorth()+','+
       b.getWest()+' '+b.getNorth()+','+
       b.getWest()+' '+b.getSouth()+'))';
-    var url = 'https://api.vworld.kr/req/data?service=data&request=GetFeature&version=2.0'
+    var url = VWORLD_DATA_BASE+'?service=data&request=GetFeature&version=2.0'
       +'&data=LT_L_MOCTLINK&key='+encodeURIComponent(state.vworldKey)
       +'&domain='+encodeURIComponent(location.origin||location.href)
       +'&geomFilter='+encodeURIComponent(geom)
@@ -859,7 +860,7 @@
     parcelResultLayer.clearLayers();
     toast('필지 경계 조회 중…');
     var geom = 'POINT('+latlng.lng+' '+latlng.lat+')';
-    var url = 'https://api.vworld.kr/req/data?service=data&request=GetFeature&version=2.0'
+    var url = VWORLD_DATA_BASE+'?service=data&request=GetFeature&version=2.0'
       +'&data=LP_PA_CBND_BUBUN&key='+encodeURIComponent(state.vworldKey)
       +'&domain='+encodeURIComponent(location.origin||location.href)
       +'&geomFilter='+encodeURIComponent(geom)
