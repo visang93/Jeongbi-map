@@ -661,6 +661,7 @@
   map.on('moveend',function(){
     if(document.getElementById('sw-age').classList.contains('on') || document.getElementById('sw-buildinginfo').classList.contains('on')) loadBuildingLayerData();
     if(document.getElementById('sw-roadinfo').classList.contains('on')) loadRoadInfoInView();
+    if(measuring || drawing) loadSnapVectorsInView();   // 그리는 중 지도 이동 시 스냅 대상 갱신
   });
 
   /* ---------- 면적 계산 (구면 근사, Leaflet) ---------- */
@@ -692,8 +693,9 @@
   //          (3) 화면에 표시된 건물·도로·필지 등 실제 벡터 데이터의 꼭짓점
   var SNAP_PX = 14;
 
-  // (3)번 벡터 꼭짓점은 개수가 많아 매번 계산하면 느리므로 캐시에 모아둔다.
+  // 벡터 꼭짓점은 개수가 많아 매번 계산하면 느리므로 캐시에 모아둔다.
   var vectorSnapVerts = [];
+  var bgSnapVerts = [];   // 화면에 안 그리고 스냅용으로만 조용히 받아온 건물·필지 꼭짓점
   function collectLatLngs(layer, out){
     if(layer.getLatLng){ out.push(layer.getLatLng()); return; }
     if(layer.getLatLngs){
@@ -705,10 +707,53 @@
     }
     if(layer.eachLayer){ layer.eachLayer(function(sub){ collectLatLngs(sub, out); }); }
   }
+  // GeoJSON 원본 geometry(좌표는 [경도,위도])에서 꼭짓점만 추출
+  function pushGeomCoords(geom, out){
+    if(!geom || !geom.coordinates) return;
+    (function walk(a){
+      if(typeof a[0] === 'number'){ out.push(L.latLng(a[1], a[0])); return; }
+      for(var i=0;i<a.length;i++) walk(a[i]);
+    })(geom.coordinates);
+  }
   function rebuildVectorSnap(){
     vectorSnapVerts = [];
     [ageLayer, buildingInfoLayer, roadInfoLayer, parcelResultLayer].forEach(function(grp){
       if(grp && map.hasLayer(grp)) collectLatLngs(grp, vectorSnapVerts);
+    });
+    if(bgSnapVerts.length) vectorSnapVerts = vectorSnapVerts.concat(bgSnapVerts);
+  }
+
+  // 측정·그리기 중, 화면에 표시하지 않고 현재 보이는 영역의 건물·필지 꼭짓점을
+  // 조용히 받아와 스냅 대상으로만 사용한다. (레이어를 켜지 않아도 지도 위 건물/필지에 붙음)
+  function loadSnapVectorsInView(){
+    if(!state.vworldKey) return;
+    if(map.getZoom() < 15) return;   // 너무 축소되면 스냅용 데이터 미수집
+    var b = map.getBounds();
+    var geom = 'POLYGON(('+
+      b.getWest()+' '+b.getSouth()+','+
+      b.getEast()+' '+b.getSouth()+','+
+      b.getEast()+' '+b.getNorth()+','+
+      b.getWest()+' '+b.getNorth()+','+
+      b.getWest()+' '+b.getSouth()+'))';
+    var base = '&key='+encodeURIComponent(state.vworldKey)
+      +'&domain='+encodeURIComponent(location.origin||location.href)
+      +'&geomFilter='+encodeURIComponent(geom)
+      +'&size=1000&format=json&crs=EPSG:4326';
+    // 건물(LT_C_SPBD) + 연속지적 필지경계(LP_PA_CBND_BUBUN) 둘 다 스냅 대상
+    var datasets = ['LT_C_SPBD','LP_PA_CBND_BUBUN'];
+    var collected = [], pending = datasets.length;
+    datasets.forEach(function(ds){
+      jsonpRequest(VWORLD_DATA_BASE+'?service=data&request=GetFeature&version=2.0&data='+ds+base)
+        .then(function(d){
+          try{
+            var feats = d.response.result.featureCollection.features;
+            feats.forEach(function(f){ pushGeomCoords(f.geometry, collected); });
+          }catch(e){}
+        })
+        .catch(function(){})
+        .then(function(){
+          if(--pending===0){ bgSnapVerts = collected; rebuildVectorSnap(); }
+        });
     });
   }
 
@@ -768,6 +813,7 @@
     measureBox.classList.add('show');
     map.getContainer().style.cursor='crosshair';
     rebuildVectorSnap();
+    loadSnapVectorsInView();
     toast('꼭짓점을 찍고 더블클릭 또는 ESC로 완료');
   }
   function stopMeasure(){
@@ -823,6 +869,7 @@
     drawPts=[]; drawMarkers=[];
     map.getContainer().style.cursor='crosshair';
     rebuildVectorSnap();
+    loadSnapVectorsInView();
     toast('꼭짓점을 찍어 경계를 그리세요 · 시작점 스냅 또는 ESC로 완료');
   }
   function cancelDraw(){
