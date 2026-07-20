@@ -349,7 +349,8 @@
 
   /* ---------- 상태 ---------- */
   var state = {
-    vworldKey: "",
+    // 발급받은 VWorld 인증키 기본값 (visang93.github.io 도메인 전용)
+    vworldKey: "813F26B6-4CAD-37BF-A8A2-9103706E918E",
     sites: []         // {id,name,memo,area,latlngs}
   };
   var siteLayers = {}; // id -> leaflet layer
@@ -1035,6 +1036,14 @@
       toast('키 저장됨. 레이어를 켜서 확인하세요'); }
     else { st.classList.remove('ok'); document.getElementById('key-status-text').textContent='미설정 — 지적도·건물정보 비활성'; }
   });
+
+  // 기본 키가 심어져 있으면 시작 시 자동으로 "설정됨" 상태로 표시하고 입력칸에도 채움
+  (function initKey(){
+    if(!state.vworldKey) return;
+    document.getElementById('vworld-key').value = state.vworldKey;
+    document.getElementById('key-status').classList.add('ok');
+    document.getElementById('key-status-text').textContent = '설정됨 — 지적도·건물정보 사용 가능';
+  })();
 
   /* ---------- 내보내기 / 불러오기 ---------- */
   document.getElementById('export-btn').addEventListener('click',function(){
