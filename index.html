@@ -57,7 +57,7 @@
   .layer .desc{font-size:11px;color:var(--ink-faint);margin-top:2px}
   .sw-cadastre{background:repeating-linear-gradient(45deg,#33c9c0 0 3px,transparent 3px 6px);border-color:#33c9c0}
   .sw-buildinginfo{background:rgba(51,201,192,.28);border-color:#33c9c0}
-  .sw-age{background:linear-gradient(135deg,#5bbf7a,#e8a13a,#e5654b)}
+  .sw-age{background:linear-gradient(135deg,#f7d9c4,#e08552,#5c2a1a)}
   .sw-road{background:linear-gradient(90deg,#f2a33b,#f2a33b 60%,transparent 60%);border-color:#f2a33b}
   .sw-terrain{background:linear-gradient(135deg,#6b5b4a,#c9b79c)}
 
@@ -119,10 +119,6 @@
   /* ===== 노후화 범례 ===== */
   .legend{margin-top:10px;display:none}
   .legend.show{display:block}
-  .legend-bar{height:10px;border-radius:5px;background:linear-gradient(90deg,#5bbf7a,#e8a13a,#e5654b)}
-  .legend-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-faint);margin-top:4px}
-  .age-input{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--ink-dim)}
-  .age-input input{width:56px;text-align:center}
 
   /* ===== 표고 범례 ===== */
   .elev-row{display:flex;align-items:center;gap:9px;padding:2px 0;font-size:11.5px;color:var(--ink-dim)}
@@ -256,11 +252,7 @@
           <span class="switch" id="sw-age"></span>
         </div>
         <div class="legend" id="age-legend">
-          <div class="legend-bar"></div>
-          <div class="legend-labels"><span>신축</span><span id="age-mid">기준</span><span>노후</span></div>
-          <div class="age-input">노후 기준
-            <input type="number" id="age-threshold" value="30" min="5" max="60"> 년 이상
-          </div>
+          <div id="age-scale"></div>
         </div>
 
         <div class="layer" data-layer="roadinfo">
@@ -357,8 +349,7 @@
   /* ---------- 상태 ---------- */
   var state = {
     vworldKey: "",
-    sites: [],        // {id,name,memo,area,latlngs}
-    ageThreshold: 30
+    sites: []         // {id,name,memo,area,latlngs}
   };
   var siteLayers = {}; // id -> leaflet layer
   var VWORLD_DATA_BASE = 'https://api.vworld.kr/req/data';
@@ -523,15 +514,28 @@
   var ageLayer = L.layerGroup();
   var buildingInfoLayer = L.layerGroup();
 
+  // 준공 후 경과 연수를 10년 단위 6구간으로 나누어 옅은 레드~진한 흙색으로 표시
+  var AGE_BANDS = [
+    {max:10, hex:'#f7d9c4', label:'1~10년'},
+    {max:20, hex:'#f0b088', label:'10~20년'},
+    {max:30, hex:'#e08552', label:'20~30년'},
+    {max:40, hex:'#c85a35', label:'30~40년'},
+    {max:50, hex:'#96402a', label:'40~50년'},
+    {max:Infinity, hex:'#5c2a1a', label:'50년 이상'}
+  ];
   function ageColor(year){
     if(!year) return '#8aa0ad';
     var age = (new Date().getFullYear()) - year;
-    var t = state.ageThreshold;
-    if(age >= t) return '#e5654b';
-    if(age >= t*0.66) return '#e8a13a';
-    if(age >= t*0.33) return '#d9c24a';
-    return '#5bbf7a';
+    for(var i=0;i<AGE_BANDS.length;i++){ if(age < AGE_BANDS[i].max) return AGE_BANDS[i].hex; }
+    return AGE_BANDS[AGE_BANDS.length-1].hex;
   }
+  // 범례 UI 렌더링
+  (function renderAgeLegend(){
+    var box=document.getElementById('age-scale');
+    box.innerHTML = AGE_BANDS.map(function(b){
+      return '<div class="elev-row"><span class="elev-swatch" style="background:'+b.hex+'"></span>'+b.label+'</div>';
+    }).join('');
+  })();
 
   function loadBuildingLayerData(){
     var ageOn = document.getElementById('sw-age').classList.contains('on');
@@ -649,12 +653,6 @@
     });
   });
 
-  // 노후 기준 변경
-  document.getElementById('age-threshold').addEventListener('change',function(){
-    state.ageThreshold = parseInt(this.value,10)||30;
-    document.getElementById('age-mid').textContent = state.ageThreshold+'년';
-    if(document.getElementById('sw-age').classList.contains('on')) loadBuildingLayerData();
-  });
   // 건물·도로 레이어가 켜져있을 때 지도를 이동하면 자동 재조회
   map.on('moveend',function(){
     if(document.getElementById('sw-age').classList.contains('on') || document.getElementById('sw-buildinginfo').classList.contains('on')) loadBuildingLayerData();
@@ -1055,7 +1053,6 @@
   }
   function esc(s){ return (''+s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 
-  document.getElementById('age-mid').textContent=state.ageThreshold+'년';
   setTimeout(function(){ map.invalidateSize(); },200);
 })();
 </script>
