@@ -139,7 +139,8 @@
 
   /* ===== 팝업 ===== */
   /* ===== 스냅(자석) 인디케이터 ===== */
-  .snap-indicator{filter:drop-shadow(0 0 5px #ffd23f) drop-shadow(0 0 2px #ffd23f);animation:snap-pulse 1s ease-in-out infinite}
+  /* 평소엔 은은한 커서 점, 실제로 꼭짓점에 붙을 때만 노란 발광+깜빡임 */
+  .snap-indicator.snapping{filter:drop-shadow(0 0 5px #ffd23f) drop-shadow(0 0 2px #ffd23f);animation:snap-pulse 1s ease-in-out infinite}
   @keyframes snap-pulse{0%,100%{opacity:1}50%{opacity:.55}}
 
   /* ===== 완료 배지 ===== */
@@ -577,6 +578,7 @@
             buildingInfoLayer.addLayer(lyrB);
           }
         });
+        rebuildVectorSnap();
         toast(feats.length+'개 건물 표시');
       }catch(e){ toast('건물 데이터 형식을 읽지 못했습니다'); }
     }).catch(function(){ toast('건물 정보 요청 실패 (키·도메인 확인)'); });
@@ -609,6 +611,7 @@
           lyr.bindPopup(buildAttrPopup(f.properties,'도로정보'));
           roadInfoLayer.addLayer(lyr);
         });
+        rebuildVectorSnap();
         toast(feats.length+'개 도로 구간 표시');
       }catch(e){ toast('도로 데이터 형식을 읽지 못했습니다'); }
     }).catch(function(){ toast('도로 정보 요청 실패 (키·도메인 확인)'); });
@@ -682,26 +685,54 @@
   }
 
   /* ---------- 스냅(자석) 기능 ---------- */
-  // 기존 사업지·측정선·현재 그리는 선의 꼭짓점 근처(픽셀 기준)에 마우스가 오면
-  // 노란색 원으로 "여기 붙습니다"를 미리 표시하고, 그 상태로 클릭하면 정확히 그 점에 스냅됩니다.
+  // 마우스가 꼭짓점 근처(픽셀 기준)에 오면 노란 원으로 "여기 붙습니다"를 표시하고,
+  // 그 상태로 클릭하면 정확히 그 점에 스냅됩니다.
+  // 붙는 대상: (1) 내가 찍은 점 (2) 저장된 사업지 꼭짓점
+  //          (3) 화면에 표시된 건물·도로·필지 등 실제 벡터 데이터의 꼭짓점
   var SNAP_PX = 14;
-  function getSnapCandidates(){
-    var pts=[];
-    state.sites.forEach(function(s){
-      s.latlngs.forEach(function(p){ pts.push(L.latLng(p[0],p[1])); });
-    });
-    pts = pts.concat(measurePts).concat(drawPts);
-    return pts;
+
+  // (3)번 벡터 꼭짓점은 개수가 많아 매번 계산하면 느리므로 캐시에 모아둔다.
+  var vectorSnapVerts = [];
+  function collectLatLngs(layer, out){
+    if(layer.getLatLng){ out.push(layer.getLatLng()); return; }
+    if(layer.getLatLngs){
+      (function walk(a){
+        if(a instanceof L.LatLng){ out.push(a); return; }
+        for(var i=0;i<a.length;i++) walk(a[i]);
+      })(layer.getLatLngs());
+      return;
+    }
+    if(layer.eachLayer){ layer.eachLayer(function(sub){ collectLatLngs(sub, out); }); }
   }
+  function rebuildVectorSnap(){
+    vectorSnapVerts = [];
+    [ageLayer, buildingInfoLayer, roadInfoLayer, parcelResultLayer].forEach(function(grp){
+      if(grp && map.hasLayer(grp)) collectLatLngs(grp, vectorSnapVerts);
+    });
+  }
+
   function findSnapCandidate(latlng){
     var target = map.latLngToContainerPoint(latlng);
-    var cands = getSnapCandidates();
     var best=null, bestDist=SNAP_PX;
-    cands.forEach(function(c){
-      var p = map.latLngToContainerPoint(c);
-      var d = target.distanceTo(p);
+    // 1. 내가 찍은 점 + 저장된 사업지 꼭짓점 (소수) — 전부 픽셀거리 비교
+    var own=[];
+    state.sites.forEach(function(s){ s.latlngs.forEach(function(p){ own.push(L.latLng(p[0],p[1])); }); });
+    own = own.concat(measurePts).concat(drawPts);
+    own.forEach(function(c){
+      var d = target.distanceTo(map.latLngToContainerPoint(c));
       if(d<bestDist){ bestDist=d; best=c; }
     });
+    // 2. 벡터 레이어 꼭짓점 (다수) — 위경도 박스로 1차 필터 후 픽셀거리 비교
+    if(vectorSnapVerts.length){
+      var edge = map.containerPointToLatLng(target.add([SNAP_PX+2, SNAP_PX+2]));
+      var dLat = Math.abs(edge.lat-latlng.lat), dLng = Math.abs(edge.lng-latlng.lng);
+      for(var i=0;i<vectorSnapVerts.length;i++){
+        var c = vectorSnapVerts[i];
+        if(Math.abs(c.lat-latlng.lat)>dLat || Math.abs(c.lng-latlng.lng)>dLng) continue;
+        var d = target.distanceTo(map.latLngToContainerPoint(c));
+        if(d<bestDist){ bestDist=d; best=c; }
+      }
+    }
     return best;
   }
   function snapLatLng(latlng){
@@ -735,6 +766,7 @@
     measuring=true; toolMeasure.classList.add('active');
     measureBox.classList.add('show');
     map.getContainer().style.cursor='crosshair';
+    rebuildVectorSnap();
     toast('꼭짓점을 찍고 더블클릭 또는 ESC로 완료');
   }
   function stopMeasure(){
@@ -789,6 +821,7 @@
     drawing=true; toolDraw.classList.add('active');
     drawPts=[]; drawMarkers=[];
     map.getContainer().style.cursor='crosshair';
+    rebuildVectorSnap();
     toast('꼭짓점을 찍어 경계를 그리세요 · 시작점 스냅 또는 ESC로 완료');
   }
   function cancelDraw(){
@@ -889,6 +922,7 @@
       var jibun=(f.properties&&(f.properties.JIBUN||f.properties.jibun))||'지번 정보 없음';
       var lyr=L.geoJSON(f.geometry,{style:{color:'#e8a13a',weight:2.5,fillColor:'#e8a13a',fillOpacity:.14,dashArray:'4 3'}});
       lyr.addTo(parcelResultLayer);
+      rebuildVectorSnap();
       lyr.bindPopup('<b>'+esc(jibun)+'</b><br>면적 '+fmt(area)+'㎡ ('+fmt(area/3.305785)+'평)'
         +'<br><a class="pop-link" href="https://www.eum.go.kr/" target="_blank" rel="noopener">토지이음 상세열람 (새 탭)</a>').openOn(map);
     }).catch(function(){ toast('필지 조회 실패 · 키와 등록 도메인을 확인하세요'); });
@@ -972,6 +1006,7 @@
       snapIndicator.setStyle(cand ? CURSOR_SNAPPED_STYLE : CURSOR_FREE_STYLE);
       snapIndicator.setLatLng(livePt);
       if(!map.hasLayer(snapIndicator)) snapIndicator.addTo(map);
+      if(snapIndicator._path) snapIndicator._path.classList.toggle('snapping', !!cand);
 
       if(measuring && measurePts.length>0) updateMeasure(livePt);
       if(drawing && drawPts.length>0) updateDrawPreview(livePt);
