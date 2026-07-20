@@ -691,7 +691,7 @@
   // 그 상태로 클릭하면 정확히 그 점에 스냅됩니다.
   // 붙는 대상: (1) 내가 찍은 점 (2) 저장된 사업지 꼭짓점
   //          (3) 화면에 표시된 건물·도로·필지 등 실제 벡터 데이터의 꼭짓점
-  var SNAP_PX = 14;
+  var SNAP_PX = 20;
 
   // 벡터 꼭짓점은 개수가 많아 매번 계산하면 느리므로 캐시에 모아둔다.
   var vectorSnapVerts = [];
@@ -752,7 +752,13 @@
         })
         .catch(function(){})
         .then(function(){
-          if(--pending===0){ bgSnapVerts = collected; rebuildVectorSnap(); }
+          if(--pending===0){
+            bgSnapVerts = collected;
+            rebuildVectorSnap();
+            if((measuring||drawing) && collected.length){
+              toast('주변 건물·필지 꼭짓점 '+collected.length+'개 준비 · 모서리에 자석처럼 붙습니다');
+            }
+          }
         });
     });
   }
