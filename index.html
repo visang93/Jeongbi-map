@@ -361,7 +361,21 @@
     ageThreshold: 30
   };
   var siteLayers = {}; // id -> leaflet layer
-  var VWORLD_DATA_BASE = 'https://vworld-proxy.woonqk2.workers.dev'; // CORS 우회용 중계 서버
+  var VWORLD_DATA_BASE = 'https://api.vworld.kr/req/data';
+
+  // VWorld 데이터 API는 브라우저 fetch()에 CORS를 막아두지만 JSONP(callback)는 지원하므로
+  // <script> 태그로 불러와 CORS 제한 없이 데이터를 받아온다.
+  function jsonpRequest(url){
+    return new Promise(function(resolve, reject){
+      var cbName = '__vworldCb'+Date.now()+Math.floor(Math.random()*100000);
+      var script = document.createElement('script');
+      var cleanup = function(){ delete window[cbName]; script.remove(); };
+      window[cbName] = function(data){ cleanup(); resolve(data); };
+      script.onerror = function(){ cleanup(); reject(new Error('jsonp load error')); };
+      script.src = url + '&callback=' + cbName;
+      document.body.appendChild(script);
+    });
+  }
 
   /* ---------- 지도 초기화 (인천 중심) ---------- */
   var map = L.map('map',{zoomControl:false,doubleClickZoom:false}).setView([37.4563,126.7052],14);
@@ -539,7 +553,7 @@
       +'&size=1000&format=json&crs=EPSG:4326';
     ageLayer.clearLayers(); buildingInfoLayer.clearLayers();
     toast('건물 정보 불러오는 중…');
-    fetch(url).then(function(r){return r.json();}).then(function(d){
+    jsonpRequest(url).then(function(d){
       try{
         var feats = d.response.result.featureCollection.features;
         feats.forEach(function(f){
@@ -583,7 +597,7 @@
       +'&size=1000&format=json&crs=EPSG:4326';
     roadInfoLayer.clearLayers();
     toast('도로 정보 불러오는 중…');
-    fetch(url).then(function(r){return r.json();}).then(function(d){
+    jsonpRequest(url).then(function(d){
       try{
         var feats = d.response.result.featureCollection.features;
         feats.forEach(function(f){
@@ -865,7 +879,7 @@
       +'&domain='+encodeURIComponent(location.origin||location.href)
       +'&geomFilter='+encodeURIComponent(geom)
       +'&size=3&format=json&crs=EPSG:4326';
-    fetch(url).then(function(r){return r.json();}).then(function(d){
+    jsonpRequest(url).then(function(d){
       var feats = (d && d.response && d.response.result && d.response.result.featureCollection)
         ? d.response.result.featureCollection.features : [];
       if(!feats.length){ toast('해당 위치의 필지를 찾지 못했습니다'); return; }
