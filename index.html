@@ -277,49 +277,42 @@
         </div>
       </section>
 
-      <!-- 필지 측정 -->
+      <!-- 구역 설정 · 면적 (통합) -->
       <section class="sec">
-        <div class="sec-head"><span class="n">02</span> 필지 면적 체크</div>
+        <div class="sec-head"><span class="n">02</span> 구역 설정 · 면적</div>
         <div class="tool-grid">
-          <div class="tool" id="tool-measure">
-            <svg viewBox="0 0 24 24"><path d="M4 20L20 4M8 8l-2 2M12 12l-2 2M16 16l-2 2"/><rect x="2" y="18" width="4" height="4" rx="1"/><rect x="18" y="2" width="4" height="4" rx="1"/></svg>
-            면적 측정
+          <div class="tool" id="tool-zone-parcel">
+            <svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zM13 5h8v6h-8zM5 13h6v8H5zM13 13h8v8h-8z"/></svg>
+            필지 클릭 담기
           </div>
-          <div class="tool" id="tool-parcel">
+          <div class="tool" id="tool-zone-draw">
+            <svg viewBox="0 0 24 24"><path d="M4 20L20 4M8 8l-2 2M12 12l-2 2M16 16l-2 2"/><rect x="2" y="18" width="4" height="4" rx="1"/><rect x="18" y="2" width="4" height="4" rx="1"/></svg>
+            직접 모서리 그리기
+          </div>
+          <div class="tool full" id="tool-parcel">
             <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
-            필지 조회
+            필지 조회 (지번·면적 확인)
           </div>
         </div>
-        <div class="measure-box" id="measure-box">
-          <div class="measure-row"><span>선택 면적</span><span><span class="v" id="m-area">0</span><span class="u">㎡</span></span></div>
-          <div class="measure-row"><span>평 환산</span><span><span class="v" id="m-pyeong">0</span><span class="u">평</span></span></div>
-          <div class="measure-sub" id="m-note">지도에서 꼭짓점을 찍어 필지 경계를 그리세요. 더블클릭으로 완료.</div>
-          <button class="btn ghost" id="m-clear" style="margin-top:10px">측정 지우기</button>
+        <div class="measure-box show" id="zone-box">
+          <div class="measure-row"><span>담은 필지</span><span><span class="v" id="z-count">0</span><span class="u">필지</span></span></div>
+          <div class="measure-row"><span>직접 그린 도형</span><span><span class="v" id="z-shapes">0</span><span class="u">개</span></span></div>
+          <div class="measure-row"><span>합계 면적</span><span><span class="v" id="z-area">0</span><span class="u">㎡</span></span></div>
+          <div class="measure-row"><span>평 환산</span><span><span class="v" id="z-pyeong">0</span><span class="u">평</span></span></div>
+          <div class="measure-row"><span>공시지가 합계</span><span><span class="v" id="z-jiga">0</span><span class="u">원</span></span></div>
+          <div class="measure-sub" id="z-note">필지를 클릭해 담거나, 직접 모서리를 찍어 구역을 만드세요. 두 방식을 섞어 써도 됩니다.</div>
+          <div id="z-list" style="max-height:120px;overflow:auto;margin-top:8px"></div>
+          <div class="btn-row" style="margin-top:10px">
+            <button class="btn" id="z-save">사업지로 저장</button>
+            <button class="btn ghost" id="z-clear">전체 해제</button>
+          </div>
         </div>
       </section>
 
       <!-- 사업지 -->
       <section class="sec">
-        <div class="sec-head"><span class="n">03</span> 구역계 설정 · 사업지</div>
-        <div class="tool-grid">
-          <div class="tool full" id="tool-zone">
-            <svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zM13 5h8v6h-8zM5 13h6v8H5zM13 13h8v8h-8z"/></svg>
-            구역계 설정 (필지 클릭)
-          </div>
-        </div>
-        <div class="measure-box" id="zone-box">
-          <div class="measure-row"><span>선택 필지</span><span><span class="v" id="z-count">0</span><span class="u">필지</span></span></div>
-          <div class="measure-row"><span>합계 면적</span><span><span class="v" id="z-area">0</span><span class="u">㎡</span></span></div>
-          <div class="measure-row"><span>평 환산</span><span><span class="v" id="z-pyeong">0</span><span class="u">평</span></span></div>
-          <div class="measure-row"><span>공시지가 합계</span><span><span class="v" id="z-jiga">0</span><span class="u">원</span></span></div>
-          <div class="measure-sub" id="z-note">지도에서 필지를 클릭해 구역에 담으세요. 다시 클릭하면 제외됩니다.</div>
-          <div id="z-list" style="max-height:120px;overflow:auto;margin-top:8px"></div>
-          <div class="btn-row" style="margin-top:10px">
-            <button class="btn" id="z-save">사업지로 저장</button>
-            <button class="btn ghost" id="z-clear">선택 해제</button>
-          </div>
-        </div>
-        <div id="site-list"><div class="site-empty">아직 저장된 사업지가 없습니다.<br>필지를 선택해 구역계를 만들면 여기에 추가됩니다.</div></div>
+        <div class="sec-head"><span class="n">03</span> 사업지 관리</div>
+        <div id="site-list"><div class="site-empty">아직 저장된 사업지가 없습니다.<br>구역을 만들어 저장하면 여기에 추가됩니다.</div></div>
         <div class="btn-row" style="margin-top:6px">
           <button class="btn ghost" id="export-btn">내보내기</button>
           <button class="btn ghost" id="import-btn">불러오기</button>
@@ -688,13 +681,6 @@
   }
   function fmt(n){ return n.toLocaleString('ko-KR',{maximumFractionDigits:1}); }
 
-  // 완료된 측정 도형 위에 면적(㎡) 라벨을 고정 표시
-  function labelMeasureResult(){
-    if(!measurePoly || measurePts.length<3) return;
-    var a=areaOf(measurePts);
-    measurePoly.unbindTooltip();
-    measurePoly.bindTooltip(fmt(a)+' ㎡', {permanent:true, direction:'center', className:'area-label'}).openTooltip();
-  }
 
   /* ---------- 스냅(자석) 기능 ---------- */
   // 마우스가 꼭짓점 근처(픽셀 기준)에 오면 노란 원으로 "여기 붙습니다"를 표시하고,
@@ -836,8 +822,9 @@
   /* ---------- 측정 도구 ---------- */
   var measurePts=[], measurePoly=null, measureMarkers=[], measuring=false;
   var drawPts=[]; // 사업지 그리기용 (스냅 후보 계산에 필요해 먼저 선언)
-  var toolMeasure=document.getElementById('tool-measure');
-  var measureBox=document.getElementById('measure-box');
+  var toolMeasure=document.getElementById('tool-zone-draw');  // 직접 모서리 그리기
+  var measureBox=document.getElementById('zone-box');
+  var liveDrawArea=0;   // 그리는 중인 도형의 실시간 면적
 
   function startMeasure(){
     if(drawing) cancelDraw();
@@ -856,13 +843,13 @@
     hideCursorHint();
     hideSnapGuides();
   }
+  // 그리는 중이던 도형을 버린다 (확정된 도형·필지는 그대로 유지)
   function clearMeasure(){
     measurePts=[];
     if(measurePoly){map.removeLayer(measurePoly);measurePoly=null;}
     measureMarkers.forEach(function(m){map.removeLayer(m);}); measureMarkers=[];
-    document.getElementById('m-area').textContent='0';
-    document.getElementById('m-pyeong').textContent='0';
-    document.getElementById('m-note').textContent='지도에서 꼭짓점을 찍어 필지 경계를 그리세요. 더블클릭 또는 ESC로 완료.';
+    liveDrawArea=0;
+    updateZoneSummary();
   }
   function updateMeasure(livePt){
     if(measurePoly){ map.removeLayer(measurePoly); measurePoly=null; }
@@ -870,17 +857,29 @@
     if(pts.length>=2){
       measurePoly=L.polygon(pts,{color:'#33c9c0',weight:2,fillColor:'#33c9c0',fillOpacity:.15,dashArray: livePt?'4 4':'6 4'}).addTo(map);
     }
-    if(pts.length>=3){
-      var a=areaOf(pts);
-      document.getElementById('m-area').textContent=fmt(a);
-      document.getElementById('m-pyeong').textContent=fmt(a/3.305785);
-      document.getElementById('m-note').textContent=measurePts.length+'개 꼭짓점 확정'+(livePt?' · 마우스 위치 실시간 반영':'')+' · 더블클릭/ESC로 완료';
-    } else if(pts.length>0){
-      document.getElementById('m-note').textContent='점을 2개 더 찍으면 면적이 계산됩니다';
-    }
+    liveDrawArea = pts.length>=3 ? areaOf(pts) : 0;
+    var note=document.getElementById('z-note');
+    if(pts.length>=3) note.textContent = measurePts.length+'개 꼭짓점 · 더블클릭 또는 ESC로 이 도형을 확정하세요';
+    else if(pts.length>0) note.textContent = '점을 '+(3-pts.length)+'개 더 찍으면 도형이 됩니다';
+    updateZoneSummary();
+  }
+  // 그린 도형을 구역에 확정해서 담는다
+  function commitDrawnShape(){
+    if(measurePts.length<3) return;
+    var ring = measurePts.map(function(p){ return [p.lat,p.lng]; });
+    zoneShapes.push(ring);
+    var poly=L.polygon([ring],{color:'#33c9c0',weight:2,fillColor:'#33c9c0',fillOpacity:.25});
+    poly.bindTooltip(fmt(ringsArea([ring]))+' ㎡',{permanent:true,direction:'center',className:'area-label'});
+    poly.addTo(zoneShapeLayer);
+    if(!map.hasLayer(zoneShapeLayer)) zoneShapeLayer.addTo(map);
+    measurePts=[];
+    if(measurePoly){ map.removeLayer(measurePoly); measurePoly=null; }
+    measureMarkers.forEach(function(m){ map.removeLayer(m); }); measureMarkers=[];
+    liveDrawArea=0;
+    document.getElementById('z-note').textContent='도형이 구역에 담겼습니다. 계속 그리거나 필지를 클릭해 추가하세요.';
+    updateZoneSummary();
   }
   toolMeasure.addEventListener('click',function(){ measuring?stopMeasure():startMeasure(); });
-  document.getElementById('m-clear').addEventListener('click',clearMeasure);
 
   /* ---------- 필지 조회 (토지이음 링크) ---------- */
   var parcelMode=false;
@@ -1002,7 +1001,9 @@
   var zonePickLayer=L.layerGroup();  // 클릭 가능한 필지들
   var zoneParcelLayers={};           // pnu -> leaflet layer (현재 화면에 그려진 것)
   var zoneSelected={};               // pnu -> 선택된 필지 정보 (화면 밖이어도 유지)
-  var toolZone=document.getElementById('tool-zone');
+  var zoneShapes=[];                 // 직접 그려서 확정한 도형들 (각각 [[lat,lng],...])
+  var zoneShapeLayer=L.layerGroup(); // 확정된 도형 표시용
+  var toolZone=document.getElementById('tool-zone-parcel');
   var zoneBox=document.getElementById('zone-box');
   var ZONE_IDLE={color:'#8fb8c9',weight:1,opacity:.9,fillColor:'#8fb8c9',fillOpacity:.05};
   var ZONE_PICK={color:'#33c9c0',weight:2,opacity:1,fillColor:'#33c9c0',fillOpacity:.42};
@@ -1024,7 +1025,12 @@
   function zoneList(){ return Object.keys(zoneSelected).map(function(k){ return zoneSelected[k]; }); }
 
   function startZone(){
-    stopMeasure(); if(drawing) cancelDraw();
+    // 그리던 도형이 있으면 버리지 않고 구역에 확정해 둔다
+    if(measuring){
+      if(measurePts.length>=3) commitDrawnShape(); else clearMeasure();
+      stopMeasure();
+    }
+    if(drawing) cancelDraw();
     zoneMode=true; toolZone.classList.add('active');
     zoneBox.classList.add('show');
     zonePickLayer.addTo(map);
@@ -1094,11 +1100,15 @@
   }
 
   function updateZoneSummary(){
-    var list=zoneList(), area=0, jigaSum=0;
-    list.forEach(function(p){ area+=p.area; jigaSum+=p.jiga*p.area; });  // 공시지가는 원/㎡
+    var list=zoneList(), parcelArea=0, jigaSum=0;
+    list.forEach(function(p){ parcelArea+=p.area; jigaSum+=p.jiga*p.area; });  // 공시지가는 원/㎡
+    var shapeArea=0;
+    zoneShapes.forEach(function(r){ shapeArea+=ringsArea([r]); });
+    var total = parcelArea + shapeArea + (liveDrawArea||0);   // 그리는 중인 도형도 실시간 반영
     document.getElementById('z-count').textContent=list.length;
-    document.getElementById('z-area').textContent=fmt(area);
-    document.getElementById('z-pyeong').textContent=fmt(area/3.305785);
+    document.getElementById('z-shapes').textContent=zoneShapes.length;
+    document.getElementById('z-area').textContent=fmt(total);
+    document.getElementById('z-pyeong').textContent=fmt(total/3.305785);
     document.getElementById('z-jiga').textContent=fmt(Math.round(jigaSum));
     document.getElementById('z-list').innerHTML = list.map(function(p){
       return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:2px 0;border-bottom:1px dashed rgba(255,255,255,.08)">'
@@ -1112,29 +1122,37 @@
       if(zoneParcelLayers[pnu]) zoneParcelLayers[pnu].setStyle(ZONE_IDLE);
     });
     zoneSelected={};
+    zoneShapes=[];
+    zoneShapeLayer.clearLayers();
+    if(map.hasLayer(zoneShapeLayer)) map.removeLayer(zoneShapeLayer);
+    clearMeasure();
+    document.getElementById('z-note').textContent='필지를 클릭해 담거나, 직접 모서리를 찍어 구역을 만드세요. 두 방식을 섞어 써도 됩니다.';
     updateZoneSummary();
   }
   document.getElementById('z-clear').addEventListener('click',clearZone);
 
   document.getElementById('z-save').addEventListener('click',function(){
     var list=zoneList();
-    if(!list.length){ toast('먼저 지도에서 필지를 클릭해 선택하세요'); return; }
+    if(!list.length && !zoneShapes.length){ toast('먼저 필지를 클릭하거나 도형을 그려 담으세요'); return; }
     var name=prompt('사업지 이름을 입력하세요','신규 사업지');
     if(name===null) return;
     var memo=prompt('메모 (선택)','')||'';
     var rings=[], area=0;
     list.forEach(function(p){ p.rings.forEach(function(r){ rings.push(r); }); area+=p.area; });
+    zoneShapes.forEach(function(r){ rings.push(r); area+=ringsArea([r]); });
     var site={
       id:'s'+Date.now(), name:name||'무명 사업지', memo:memo, area:area, rings:rings,
       parcels:list.map(function(p){ return {pnu:p.pnu,jibun:p.jibun,addr:p.addr,area:p.area,jiga:p.jiga}; })
     };
+    var shapeCount = zoneShapes.length;   // clearZone 전에 개수를 기록
     state.sites.push(site);
     var layer=buildSiteLayer(site);
     renderSite(site,layer);
     drawnItems.addLayer(layer);
     renderSiteList();
     clearZone();
-    toast('"'+site.name+'" 저장됨 · '+list.length+'필지 '+fmt(area)+'㎡');
+    toast('"'+site.name+'" 저장됨 · '+list.length+'필지'
+      +(shapeCount?' + 도형 '+shapeCount+'개':'')+' · '+fmt(area)+'㎡');
   });
 
   /* ---------- 필지 경계 즉시 조회 (item 4: 외부 이동 없이 지도 위에 바로 표시) ---------- */
@@ -1195,7 +1213,11 @@
     }
   });
   map.on('dblclick',function(){
-    if(measuring && measurePts.length>=3){ showCompleteBadge(measurePts[measurePts.length-1]); stopMeasure(); updateMeasure(); labelMeasureResult(); toast('측정 완료'); }
+    if(measuring && measurePts.length>=3){
+      showCompleteBadge(measurePts[measurePts.length-1]);
+      commitDrawnShape();
+      toast('도형 확정 · 계속 그리거나 필지를 담을 수 있습니다');
+    }
     if(drawing && drawPts.length>=3){ finishDraw(); }
   });
 
@@ -1208,12 +1230,10 @@
     if(measuring){
       if(measurePts.length>=3){
         showCompleteBadge(measurePts[measurePts.length-1]);
-        stopMeasure();
-        updateMeasure();
-        labelMeasureResult();
-        toast('측정 완료 (ESC)');
+        commitDrawnShape();
+        toast('도형 확정 (ESC)');
       } else {
-        clearMeasure(); stopMeasure(); toast('측정 취소');
+        clearMeasure(); stopMeasure(); toast('그리기 취소');
       }
       return;
     }
