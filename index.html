@@ -300,14 +300,26 @@
 
       <!-- 사업지 -->
       <section class="sec">
-        <div class="sec-head"><span class="n">03</span> 사업지 관리</div>
+        <div class="sec-head"><span class="n">03</span> 구역계 설정 · 사업지</div>
         <div class="tool-grid">
-          <div class="tool full" id="tool-draw">
-            <svg viewBox="0 0 24 24"><path d="M12 2l3 6 6 .5-4.5 4 1.4 6L12 15.5 6.1 18.5 7.5 12.5 3 8.5 9 8z"/></svg>
-            사업지 경계 그리기
+          <div class="tool full" id="tool-zone">
+            <svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zM13 5h8v6h-8zM5 13h6v8H5zM13 13h8v8h-8z"/></svg>
+            구역계 설정 (필지 클릭)
           </div>
         </div>
-        <div id="site-list"><div class="site-empty">아직 저장된 사업지가 없습니다.<br>경계를 그리면 여기에 추가됩니다.</div></div>
+        <div class="measure-box" id="zone-box">
+          <div class="measure-row"><span>선택 필지</span><span><span class="v" id="z-count">0</span><span class="u">필지</span></span></div>
+          <div class="measure-row"><span>합계 면적</span><span><span class="v" id="z-area">0</span><span class="u">㎡</span></span></div>
+          <div class="measure-row"><span>평 환산</span><span><span class="v" id="z-pyeong">0</span><span class="u">평</span></span></div>
+          <div class="measure-row"><span>공시지가 합계</span><span><span class="v" id="z-jiga">0</span><span class="u">원</span></span></div>
+          <div class="measure-sub" id="z-note">지도에서 필지를 클릭해 구역에 담으세요. 다시 클릭하면 제외됩니다.</div>
+          <div id="z-list" style="max-height:120px;overflow:auto;margin-top:8px"></div>
+          <div class="btn-row" style="margin-top:10px">
+            <button class="btn" id="z-save">사업지로 저장</button>
+            <button class="btn ghost" id="z-clear">선택 해제</button>
+          </div>
+        </div>
+        <div id="site-list"><div class="site-empty">아직 저장된 사업지가 없습니다.<br>필지를 선택해 구역계를 만들면 여기에 추가됩니다.</div></div>
         <div class="btn-row" style="margin-top:6px">
           <button class="btn ghost" id="export-btn">내보내기</button>
           <button class="btn ghost" id="import-btn">불러오기</button>
@@ -659,6 +671,7 @@
     if(document.getElementById('sw-age').classList.contains('on') || document.getElementById('sw-buildinginfo').classList.contains('on')) loadBuildingLayerData();
     if(document.getElementById('sw-roadinfo').classList.contains('on')) loadRoadInfoInView();
     if(measuring || drawing) loadSnapVectorsInView();   // 그리는 중 지도 이동 시 스냅 대상 갱신
+    if(zoneMode) loadParcelsForZone();                  // 구역계 설정 중 지도 이동 시 필지 갱신
   });
 
   /* ---------- 면적 계산 (구면 근사, Leaflet) ---------- */
@@ -779,7 +792,9 @@
     var best=null, bestDist=SNAP_PX;
     // 1. 내가 찍은 점 + 저장된 사업지 꼭짓점 (소수) — 전부 픽셀거리 비교
     var own=[];
-    state.sites.forEach(function(s){ s.latlngs.forEach(function(p){ own.push(L.latLng(p[0],p[1])); }); });
+    state.sites.forEach(function(s){
+      siteRings(s).forEach(function(r){ r.forEach(function(p){ own.push(L.latLng(p[0],p[1])); }); });
+    });
     own = own.concat(measurePts).concat(drawPts);
     own.forEach(function(c){
       var d = target.distanceTo(map.latLngToContainerPoint(c));
@@ -826,6 +841,7 @@
 
   function startMeasure(){
     if(drawing) cancelDraw();
+    if(zoneMode) stopZone();
     measuring=true; toolMeasure.classList.add('active');
     measureBox.classList.add('show');
     map.getContainer().style.cursor='crosshair';
@@ -883,7 +899,7 @@
 
   function startDraw(){
     stopMeasure();
-    drawing=true; toolDraw.classList.add('active');
+    drawing=true; if(toolDraw) toolDraw.classList.add('active');
     drawPts=[]; drawMarkers=[];
     map.getContainer().style.cursor='crosshair';
     rebuildVectorSnap();
@@ -891,7 +907,7 @@
     toast('꼭짓점을 찍어 경계를 그리세요 · 시작점 스냅 또는 ESC로 완료');
   }
   function cancelDraw(){
-    drawing=false; toolDraw.classList.remove('active');
+    drawing=false; if(toolDraw) toolDraw.classList.remove('active');
     map.getContainer().style.cursor='';
     drawMarkers.forEach(function(m){ map.removeLayer(m); }); drawMarkers=[];
     if(drawPreview){ map.removeLayer(drawPreview); drawPreview=null; }
@@ -924,11 +940,25 @@
     renderSiteList();
     toast('"'+site.name+'" 저장됨 · '+fmt(area)+'㎡');
   }
-  toolDraw.addEventListener('click',function(){ drawing?cancelDraw():startDraw(); });
+  if(toolDraw) toolDraw.addEventListener('click',function(){ drawing?cancelDraw():startDraw(); });
 
+  // 사업지 도형은 여러 필지(여러 폴리곤)로 이뤄질 수 있다.
+  // rings: [[ [lat,lng], ... ], ...]  / 예전 형식(latlngs 단일 폴리곤)도 계속 지원
+  function siteRings(s){
+    if(s.rings && s.rings.length) return s.rings;
+    if(s.latlngs && s.latlngs.length) return [s.latlngs];
+    return [];
+  }
+  function buildSiteLayer(s){
+    var rings = siteRings(s);
+    // 각 링을 독립 폴리곤으로(구멍이 아니라) 그리도록 멀티폴리곤 형태로 감싼다
+    return L.polygon(rings.map(function(r){ return [r]; }), {});
+  }
   function renderSite(site,layer){
     layer.setStyle({color:'#33c9c0',weight:2,fillColor:'#33c9c0',fillOpacity:.18});
-    layer.bindPopup('<b>'+esc(site.name)+'</b><br>면적 '+fmt(site.area)+'㎡ ('+fmt(site.area/3.305785)+'평)'
+    var extra = site.parcels && site.parcels.length ? '<br>'+site.parcels.length+'개 필지' : '';
+    layer.bindPopup('<b>'+esc(site.name)+'</b>'+extra
+      +'<br>면적 '+fmt(site.area)+'㎡ ('+fmt(site.area/3.305785)+'평)'
       +(site.memo?'<br>'+esc(site.memo):''));
     siteLayers[site.id]=layer;
   }
@@ -964,6 +994,148 @@
       box.appendChild(el);
     });
   }
+
+  /* ---------- 구역계 설정 (필지를 클릭해 담는 방식) ----------
+     손으로 꼭짓점을 찍지 않고, 정부 필지경계를 그대로 선택해 합칩니다.
+     그래서 경계가 항상 정확하고 면적도 필지 면적의 합으로 산출됩니다. */
+  var zoneMode=false;
+  var zonePickLayer=L.layerGroup();  // 클릭 가능한 필지들
+  var zoneParcelLayers={};           // pnu -> leaflet layer (현재 화면에 그려진 것)
+  var zoneSelected={};               // pnu -> 선택된 필지 정보 (화면 밖이어도 유지)
+  var toolZone=document.getElementById('tool-zone');
+  var zoneBox=document.getElementById('zone-box');
+  var ZONE_IDLE={color:'#8fb8c9',weight:1,opacity:.9,fillColor:'#8fb8c9',fillOpacity:.05};
+  var ZONE_PICK={color:'#33c9c0',weight:2,opacity:1,fillColor:'#33c9c0',fillOpacity:.42};
+
+  // GeoJSON geometry -> [[ [lat,lng], ... ], ...]
+  function geomRings(geom){
+    var out=[];
+    if(!geom) return out;
+    function ring(r){ return r.map(function(c){ return [c[1],c[0]]; }); }
+    if(geom.type==='Polygon') geom.coordinates.forEach(function(r){ out.push(ring(r)); });
+    else if(geom.type==='MultiPolygon') geom.coordinates.forEach(function(poly){ poly.forEach(function(r){ out.push(ring(r)); }); });
+    return out;
+  }
+  function ringsArea(rings){
+    var a=0;
+    rings.forEach(function(r){ a+=areaOf(r.map(function(p){ return L.latLng(p[0],p[1]); })); });
+    return a;
+  }
+  function zoneList(){ return Object.keys(zoneSelected).map(function(k){ return zoneSelected[k]; }); }
+
+  function startZone(){
+    stopMeasure(); if(drawing) cancelDraw();
+    zoneMode=true; toolZone.classList.add('active');
+    zoneBox.classList.add('show');
+    zonePickLayer.addTo(map);
+    map.getContainer().style.cursor='pointer';
+    loadParcelsForZone();
+  }
+  function stopZone(){
+    zoneMode=false; toolZone.classList.remove('active');
+    map.getContainer().style.cursor='';
+    if(map.hasLayer(zonePickLayer)) map.removeLayer(zonePickLayer);
+    zonePickLayer.clearLayers(); zoneParcelLayers={};
+  }
+  toolZone.addEventListener('click',function(){ zoneMode?stopZone():startZone(); });
+
+  function loadParcelsForZone(){
+    if(!state.vworldKey){ toast('구역계 설정은 VWorld 키가 필요합니다'); return; }
+    if(map.getZoom()<16){ toast('필지는 줌 16 이상에서 표시됩니다 · 더 확대하세요'); return; }
+    var b=map.getBounds();
+    var geom='POLYGON(('+
+      b.getWest()+' '+b.getSouth()+','+
+      b.getEast()+' '+b.getSouth()+','+
+      b.getEast()+' '+b.getNorth()+','+
+      b.getWest()+' '+b.getNorth()+','+
+      b.getWest()+' '+b.getSouth()+'))';
+    var url=VWORLD_DATA_BASE+'?service=data&request=GetFeature&version=2.0&data=LP_PA_CBND_BUBUN'
+      +'&key='+encodeURIComponent(state.vworldKey)
+      +'&domain='+encodeURIComponent(location.origin||location.href)
+      +'&geomFilter='+encodeURIComponent(geom)
+      +'&size=1000&format=json&crs=EPSG:4326';
+    toast('필지 불러오는 중…');
+    jsonpRequest(url).then(function(d){
+      var feats=[];
+      try{ feats=d.response.result.featureCollection.features; }catch(e){}
+      zonePickLayer.clearLayers(); zoneParcelLayers={};
+      feats.forEach(function(f){
+        var p=f.properties||{};
+        var pnu=p.pnu||f.id;
+        if(!pnu) return;
+        var rings=geomRings(f.geometry);
+        if(!rings.length) return;
+        var lyr=L.polygon(rings.map(function(r){ return [r]; }), zoneSelected[pnu]?ZONE_PICK:ZONE_IDLE);
+        lyr.bindTooltip(esc(p.jibun||''), {sticky:true});
+        lyr.on('click',function(ev){
+          L.DomEvent.stopPropagation(ev);
+          toggleParcel(pnu,p,rings,lyr);
+        });
+        lyr.addTo(zonePickLayer);
+        zoneParcelLayers[pnu]=lyr;
+      });
+      toast(feats.length+'개 필지 · 클릭해서 구역에 담으세요');
+    }).catch(function(){ toast('필지 불러오기 실패 (키·도메인 확인)'); });
+  }
+
+  function toggleParcel(pnu,props,rings,lyr){
+    if(zoneSelected[pnu]){
+      delete zoneSelected[pnu];
+      lyr.setStyle(ZONE_IDLE);
+    }else{
+      zoneSelected[pnu]={
+        pnu:pnu, jibun:props.jibun||'', addr:props.addr||'',
+        jiga:parseFloat(props.jiga)||0,
+        area:ringsArea(rings), rings:rings
+      };
+      lyr.setStyle(ZONE_PICK);
+    }
+    updateZoneSummary();
+  }
+
+  function updateZoneSummary(){
+    var list=zoneList(), area=0, jigaSum=0;
+    list.forEach(function(p){ area+=p.area; jigaSum+=p.jiga*p.area; });  // 공시지가는 원/㎡
+    document.getElementById('z-count').textContent=list.length;
+    document.getElementById('z-area').textContent=fmt(area);
+    document.getElementById('z-pyeong').textContent=fmt(area/3.305785);
+    document.getElementById('z-jiga').textContent=fmt(Math.round(jigaSum));
+    document.getElementById('z-list').innerHTML = list.map(function(p){
+      return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:2px 0;border-bottom:1px dashed rgba(255,255,255,.08)">'
+        +'<span>'+esc(p.jibun||p.pnu)+'</span>'
+        +'<span style="color:var(--accent);white-space:nowrap">'+fmt(p.area)+'㎡</span></div>';
+    }).join('');
+  }
+
+  function clearZone(){
+    Object.keys(zoneSelected).forEach(function(pnu){
+      if(zoneParcelLayers[pnu]) zoneParcelLayers[pnu].setStyle(ZONE_IDLE);
+    });
+    zoneSelected={};
+    updateZoneSummary();
+  }
+  document.getElementById('z-clear').addEventListener('click',clearZone);
+
+  document.getElementById('z-save').addEventListener('click',function(){
+    var list=zoneList();
+    if(!list.length){ toast('먼저 지도에서 필지를 클릭해 선택하세요'); return; }
+    var name=prompt('사업지 이름을 입력하세요','신규 사업지');
+    if(name===null) return;
+    var memo=prompt('메모 (선택)','')||'';
+    var rings=[], area=0;
+    list.forEach(function(p){ p.rings.forEach(function(r){ rings.push(r); }); area+=p.area; });
+    var site={
+      id:'s'+Date.now(), name:name||'무명 사업지', memo:memo, area:area, rings:rings,
+      parcels:list.map(function(p){ return {pnu:p.pnu,jibun:p.jibun,addr:p.addr,area:p.area,jiga:p.jiga}; })
+    };
+    state.sites.push(site);
+    var layer=buildSiteLayer(site);
+    renderSite(site,layer);
+    drawnItems.addLayer(layer);
+    renderSiteList();
+    clearZone();
+    toast('"'+site.name+'" 저장됨 · '+list.length+'필지 '+fmt(area)+'㎡');
+  });
 
   /* ---------- 필지 경계 즉시 조회 (item 4: 외부 이동 없이 지도 위에 바로 표시) ---------- */
   var parcelResultLayer = L.layerGroup().addTo(map);
@@ -1053,6 +1225,7 @@
       }
       return;
     }
+    if(zoneMode){ stopZone(); toast('구역계 설정 종료 (선택은 유지됨)'); return; }
     if(parcelMode){
       parcelMode=false; toolParcel.classList.remove('active'); map.getContainer().style.cursor='';
     }
@@ -1131,7 +1304,7 @@
         (data.sites||[]).forEach(function(s){
           if(state.sites.some(function(x){return x.id===s.id;})) return;
           state.sites.push(s);
-          var layer=L.polygon(s.latlngs,{});
+          var layer=buildSiteLayer(s);
           renderSite(s,layer); drawnItems.addLayer(layer);
         });
         renderSiteList();
