@@ -695,7 +695,11 @@
 
   // 벡터 꼭짓점은 개수가 많아 매번 계산하면 느리므로 캐시에 모아둔다.
   var vectorSnapVerts = [];
-  var bgSnapVerts = [];   // 화면에 안 그리고 스냅용으로만 조용히 받아온 건물·필지 꼭짓점
+  var bgSnapVerts = [];   // 스냅용으로 받아온 건물·필지 꼭짓점
+  // 그리는 동안 "여기에 붙는다"를 눈으로 볼 수 있게 대상 윤곽선을 옅게 표시
+  var snapGuideLayer = L.layerGroup();
+  function showSnapGuides(){ if(!map.hasLayer(snapGuideLayer)) snapGuideLayer.addTo(map); }
+  function hideSnapGuides(){ if(map.hasLayer(snapGuideLayer)) map.removeLayer(snapGuideLayer); snapGuideLayer.clearLayers(); }
   function collectLatLngs(layer, out){
     if(layer.getLatLng){ out.push(layer.getLatLng()); return; }
     if(layer.getLatLngs){
@@ -741,13 +745,16 @@
       +'&size=1000&format=json&crs=EPSG:4326';
     // 건물(LT_C_SPBD) + 연속지적 필지경계(LP_PA_CBND_BUBUN) 둘 다 스냅 대상
     var datasets = ['LT_C_SPBD','LP_PA_CBND_BUBUN'];
-    var collected = [], pending = datasets.length;
+    var collected = [], guideFeats = [], pending = datasets.length;
     datasets.forEach(function(ds){
       jsonpRequest(VWORLD_DATA_BASE+'?service=data&request=GetFeature&version=2.0&data='+ds+base)
         .then(function(d){
           try{
             var feats = d.response.result.featureCollection.features;
-            feats.forEach(function(f){ pushGeomCoords(f.geometry, collected); });
+            feats.forEach(function(f){
+              pushGeomCoords(f.geometry, collected);
+              guideFeats.push({type:'Feature', geometry:f.geometry, properties:{}});
+            });
           }catch(e){}
         })
         .catch(function(){})
@@ -755,8 +762,15 @@
           if(--pending===0){
             bgSnapVerts = collected;
             rebuildVectorSnap();
-            if((measuring||drawing) && collected.length){
-              toast('주변 건물·필지 꼭짓점 '+collected.length+'개 준비 · 모서리에 자석처럼 붙습니다');
+            // 붙을 대상 윤곽선을 옅게 표시 (그리는 중일 때만)
+            snapGuideLayer.clearLayers();
+            if((measuring||drawing) && guideFeats.length){
+              L.geoJSON({type:'FeatureCollection', features:guideFeats}, {
+                interactive:false,
+                style:{color:'#ffd23f', weight:1, opacity:.6, fill:false, dashArray:'3 3'}
+              }).addTo(snapGuideLayer);
+              showSnapGuides();
+              toast('노란 윤곽선의 모서리에 자석처럼 붙습니다 (꼭짓점 '+collected.length+'개)');
             }
           }
         });
@@ -827,6 +841,7 @@
     map.getContainer().style.cursor='';
     hideSnapIndicator();
     hideCursorHint();
+    hideSnapGuides();
   }
   function clearMeasure(){
     measurePts=[];
@@ -886,6 +901,7 @@
     drawPts=[];
     hideSnapIndicator();
     hideCursorHint();
+    hideSnapGuides();
   }
   function updateDrawPreview(livePt){
     if(drawPreview){ map.removeLayer(drawPreview); drawPreview=null; }
