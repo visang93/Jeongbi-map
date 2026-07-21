@@ -170,6 +170,14 @@
   }
   .leaflet-tooltip.area-label::before{display:none}
 
+  /* ===== 필지 지번 라벨 (토지이음 스타일 — 배경 없이 지도 위에 얹힘) ===== */
+  .leaflet-tooltip.jibun-label{
+    background:transparent;border:none;box-shadow:none;color:#2a3a42;
+    font-size:11px;font-weight:600;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 5px #fff;
+    padding:0;pointer-events:none;
+  }
+  .leaflet-tooltip.jibun-label::before{display:none}
+
   .leaflet-popup-content-wrapper{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
   .leaflet-popup-tip{background:var(--panel);border:1px solid var(--line)}
   .leaflet-popup-content{margin:12px 14px;font-size:12px;line-height:1.6}
@@ -685,12 +693,11 @@
   /* ---------- 스냅(자석) 기능 ---------- */
   // 마우스가 꼭짓점 근처(픽셀 기준)에 오면 노란 원으로 "여기 붙습니다"를 표시하고,
   // 그 상태로 클릭하면 정확히 그 점에 스냅됩니다.
-  // 붙는 대상: (1) 내가 찍은 점 (2) 저장된 사업지 꼭짓점
-  //          (3) 화면에 표시된 건물·도로·필지 등 실제 벡터 데이터의 꼭짓점
+  // "직접 모서리 그리기" 중에는 오직 (1) 화면에 보이는 필지 테두리 (2) 지금 그리는 중인 내 점에만 붙는다.
+  // 건물(노후화/건축물정보)·도로는 해당 토글이 켜져 있을 때만 별도로 포함된다.
   var SNAP_PX = 20;
 
   // 벡터 꼭짓점은 개수가 많아 매번 계산하면 느리므로 캐시에 모아둔다.
-  // 스냅 대상 = 화면에 실제로 표시된 필지(zonePickLayer) 등의 꼭짓점
   var vectorSnapVerts = [];
   function collectLatLngs(layer, out){
     if(layer.getLatLng){ out.push(layer.getLatLng()); return; }
@@ -705,7 +712,13 @@
   }
   function rebuildVectorSnap(){
     vectorSnapVerts = [];
-    [zonePickLayer, zoneShapeLayer, ageLayer, buildingInfoLayer, roadInfoLayer, parcelResultLayer].forEach(function(grp){
+    if(measuring){
+      // 직접 모서리 그리기: 지금 화면에 보이는 필지 테두리만 스냅 대상.
+      // (필지조회 결과·저장된 사업지·확정 도형 등은 제외 — 요청하지 않은 것에 안 붙게)
+      if(map.hasLayer(zonePickLayer)) collectLatLngs(zonePickLayer, vectorSnapVerts);
+    }
+    // 건물·도로는 해당 레이어가 실제로 지도에 켜져 있을 때만 추가로 포함
+    [ageLayer, buildingInfoLayer, roadInfoLayer].forEach(function(grp){
       if(grp && map.hasLayer(grp)) collectLatLngs(grp, vectorSnapVerts);
     });
   }
@@ -713,12 +726,8 @@
   function findSnapCandidate(latlng){
     var target = map.latLngToContainerPoint(latlng);
     var best=null, bestDist=SNAP_PX;
-    // 1. 내가 찍은 점 + 저장된 사업지 꼭짓점 (소수) — 전부 픽셀거리 비교
-    var own=[];
-    state.sites.forEach(function(s){
-      siteRings(s).forEach(function(r){ r.forEach(function(p){ own.push(L.latLng(p[0],p[1])); }); });
-    });
-    own = own.concat(measurePts).concat(drawPts);
+    // 1. 지금 그리는 중인 내 점 (도형을 닫을 때 필요) — 전부 픽셀거리 비교
+    var own = measurePts.concat(drawPts);
     own.forEach(function(c){
       var d = target.distanceTo(map.latLngToContainerPoint(c));
       if(d<bestDist){ bestDist=d; best=c; }
@@ -945,6 +954,9 @@
   var zoneBox=document.getElementById('zone-box');
   var ZONE_IDLE={color:'#8fb8c9',weight:1,opacity:.9,fillColor:'#8fb8c9',fillOpacity:.05};
   var ZONE_PICK={color:'#33c9c0',weight:2,opacity:1,fillColor:'#33c9c0',fillOpacity:.42};
+  // 직접 모서리 그리기 모드: 클릭은 안 되지만 스냅 대상이 잘 보이도록 테두리를 또렷하게
+  // (스냅 성공 표시는 노란색이라 겹치지 않도록 하늘색 사용)
+  var ZONE_GUIDE={color:'#5ec8ff',weight:1.6,opacity:.85,fillColor:'#5ec8ff',fillOpacity:.04};
 
   // GeoJSON geometry -> [[ [lat,lng], ... ], ...]
   function geomRings(geom){
@@ -1020,11 +1032,12 @@
         if(!pnu) return;
         var rings=geomRings(f.geometry);
         if(!rings.length) return;
-        var style=zoneSelected[pnu]?ZONE_PICK:ZONE_IDLE;
+        var style = !parcelLayerInteractive ? ZONE_GUIDE : (zoneSelected[pnu]?ZONE_PICK:ZONE_IDLE);
         var opts=L.extend({}, style, {interactive: parcelLayerInteractive});
         var lyr=L.polygon(rings.map(function(r){ return [r]; }), opts);
         if(parcelLayerInteractive){
-          lyr.bindTooltip(esc(p.jibun||''), {sticky:true});
+          // 토지이음처럼 마우스를 올리지 않아도 지번이 항상 보이도록 고정 라벨 표시
+          lyr.bindTooltip(esc(p.jibun||''), {permanent:true, direction:'center', className:'jibun-label'});
           lyr.on('click',function(ev){
             L.DomEvent.stopPropagation(ev);
             toggleParcel(pnu,p,rings,lyr);
