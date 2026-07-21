@@ -213,16 +213,16 @@
       <section class="sec">
         <div class="sec-head"><span class="n">00</span> 지도 배경</div>
         <div class="tool-grid">
-          <div class="tool active" id="base-osm">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg>
-            OSM 기본지도
-          </div>
-          <div class="tool" id="base-vworld">
+          <div class="tool active" id="base-normal">
             <svg viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg>
-            브이월드 최신
+            일반지도
+          </div>
+          <div class="tool" id="base-sat">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M3 8.5V6a2 2 0 012-2h3l1.5-2h5L19 4h0a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2v-2.5"/></svg>
+            항공영상
           </div>
         </div>
-        <div class="hint" id="basemap-note">OpenStreetMap · 커뮤니티 기반 상시 업데이트 지도입니다.</div>
+        <div class="hint" id="basemap-note">국토교통부 브이월드 공식 배경지도 · 정부 최신 데이터 기준</div>
       </section>
 
       <!-- 레이어 -->
@@ -333,7 +333,7 @@
   </aside>
 
   <div id="map"></div>
-  <div class="map-hud" id="hud">배경 <b id="hud-base-name">OSM</b> · 위도 <b id="hud-lat">–</b> · 경도 <b id="hud-lng">–</b> · 줌 <b id="hud-zoom">–</b></div>
+  <div class="map-hud" id="hud">배경 <b id="hud-base-name">일반</b> · 위도 <b id="hud-lat">–</b> · 경도 <b id="hud-lng">–</b> · 줌 <b id="hud-zoom">–</b></div>
   <div id="toast"></div>
   <div id="cursor-hint"></div>
 </div>
@@ -374,44 +374,41 @@
   var map = L.map('map',{zoomControl:false,doubleClickZoom:false}).setView([37.4563,126.7052],14);
   L.control.zoom({position:'topright'}).addTo(map);
 
-  // 고화질(레티나) 배경지도 — CARTO Voyager, 텍스트/라벨 선명도 개선, 상시 업데이트
-  var osmLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{
-    subdomains:'abcd', maxZoom:20, detectRetina:true,
-    attribution:'© OpenStreetMap contributors © CARTO'
-  }).addTo(map);
-
-  var vworldBaseLayer = null;
-  var activeBase = osmLayer, activeBaseKey='osm';
-
-  function buildVworldBase(){
-    return L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/'+state.vworldKey+'/Base/{z}/{y}/{x}.png',{
-      maxZoom:19, minZoom:6, attribution:'국토교통부 브이월드'
+  /* ---------- 배경지도 (국토교통부 브이월드 정부 공식 데이터만 사용) ----------
+     스냅용 건물·필지 좌표와 같은 출처라 배경 그림과 자석 위치가 정확히 일치합니다. */
+  function vwTile(kind, ext){
+    return L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/'+state.vworldKey+'/'+kind+'/{z}/{y}/{x}.'+ext,{
+      minZoom:6, maxZoom:20, maxNativeZoom:19,   // 19단계까지 실제 타일, 그 이상은 확대 표시
+      attribution:'국토교통부 브이월드'
     });
   }
+  var baseNormal = vwTile('Base','png');        // 일반지도
+  var baseSat    = vwTile('Satellite','jpeg');  // 항공영상
+  var baseHybrid = vwTile('Hybrid','png');      // 항공영상 위 도로·지명 라벨
+  var activeBaseKey = 'normal';
+  baseNormal.addTo(map);
+
   function switchBase(key){
     if(key===activeBaseKey) return;
-    if(key==='vworld'){
-      if(!state.vworldKey){ toast('브이월드 키를 먼저 저장하세요'); return; }
-      if(!vworldBaseLayer) vworldBaseLayer = buildVworldBase();
-      map.removeLayer(activeBase);
-      vworldBaseLayer.addTo(map);
-      activeBase = vworldBaseLayer; activeBaseKey = 'vworld';
-      document.getElementById('base-osm').classList.remove('active');
-      document.getElementById('base-vworld').classList.add('active');
-      document.getElementById('basemap-note').textContent = '국토교통부 브이월드 공식 배경지도 · 정부 최신 데이터 기준';
-      document.getElementById('hud-base-name').textContent = 'VWorld';
+    if(key==='sat'){
+      map.removeLayer(baseNormal);
+      baseSat.addTo(map); baseHybrid.addTo(map);
+      document.getElementById('base-normal').classList.remove('active');
+      document.getElementById('base-sat').classList.add('active');
+      document.getElementById('basemap-note').textContent = '브이월드 항공영상 + 도로·지명 라벨 · 정부 최신 촬영본';
+      document.getElementById('hud-base-name').textContent = '항공';
     } else {
-      map.removeLayer(activeBase);
-      osmLayer.addTo(map);
-      activeBase = osmLayer; activeBaseKey = 'osm';
-      document.getElementById('base-vworld').classList.remove('active');
-      document.getElementById('base-osm').classList.add('active');
-      document.getElementById('basemap-note').textContent = 'OpenStreetMap · 커뮤니티 기반 상시 업데이트 지도입니다.';
-      document.getElementById('hud-base-name').textContent = 'OSM';
+      map.removeLayer(baseSat); map.removeLayer(baseHybrid);
+      baseNormal.addTo(map);
+      document.getElementById('base-sat').classList.remove('active');
+      document.getElementById('base-normal').classList.add('active');
+      document.getElementById('basemap-note').textContent = '국토교통부 브이월드 공식 배경지도 · 정부 최신 데이터 기준';
+      document.getElementById('hud-base-name').textContent = '일반';
     }
+    activeBaseKey = key;
   }
-  document.getElementById('base-osm').addEventListener('click',function(){ switchBase('osm'); });
-  document.getElementById('base-vworld').addEventListener('click',function(){ switchBase('vworld'); });
+  document.getElementById('base-normal').addEventListener('click',function(){ switchBase('normal'); });
+  document.getElementById('base-sat').addEventListener('click',function(){ switchBase('sat'); });
 
   /* ---------- 표고 색상 레이어 ----------
      무료 AWS 지형 표고데이터(Terrarium PNG, 키 불필요)를 받아
