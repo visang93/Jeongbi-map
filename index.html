@@ -663,8 +663,8 @@
   map.on('moveend',function(){
     if(document.getElementById('sw-age').classList.contains('on') || document.getElementById('sw-buildinginfo').classList.contains('on')) loadBuildingLayerData();
     if(document.getElementById('sw-roadinfo').classList.contains('on')) loadRoadInfoInView();
-    if(measuring || drawing) loadSnapVectorsInView();   // 그리는 중 지도 이동 시 스냅 대상 갱신
-    if(zoneMode) loadParcelsForZone();                  // 구역계 설정 중 지도 이동 시 필지 갱신
+    // 필지 담기·직접 그리기 중에는 지도를 옮길 때 필지 경계를 다시 불러온다
+    if(zoneMode || measuring || drawing) loadParcelsForZone();
   });
 
   /* ---------- 면적 계산 (구면 근사, Leaflet) ---------- */
@@ -690,12 +690,8 @@
   var SNAP_PX = 20;
 
   // 벡터 꼭짓점은 개수가 많아 매번 계산하면 느리므로 캐시에 모아둔다.
+  // 스냅 대상 = 화면에 실제로 표시된 필지(zonePickLayer) 등의 꼭짓점
   var vectorSnapVerts = [];
-  var bgSnapVerts = [];   // 스냅용으로 받아온 건물·필지 꼭짓점
-  // 그리는 동안 "여기에 붙는다"를 눈으로 볼 수 있게 대상 윤곽선을 옅게 표시
-  var snapGuideLayer = L.layerGroup();
-  function showSnapGuides(){ if(!map.hasLayer(snapGuideLayer)) snapGuideLayer.addTo(map); }
-  function hideSnapGuides(){ if(map.hasLayer(snapGuideLayer)) map.removeLayer(snapGuideLayer); snapGuideLayer.clearLayers(); }
   function collectLatLngs(layer, out){
     if(layer.getLatLng){ out.push(layer.getLatLng()); return; }
     if(layer.getLatLngs){
@@ -707,69 +703,10 @@
     }
     if(layer.eachLayer){ layer.eachLayer(function(sub){ collectLatLngs(sub, out); }); }
   }
-  // GeoJSON 원본 geometry(좌표는 [경도,위도])에서 꼭짓점만 추출
-  function pushGeomCoords(geom, out){
-    if(!geom || !geom.coordinates) return;
-    (function walk(a){
-      if(typeof a[0] === 'number'){ out.push(L.latLng(a[1], a[0])); return; }
-      for(var i=0;i<a.length;i++) walk(a[i]);
-    })(geom.coordinates);
-  }
   function rebuildVectorSnap(){
     vectorSnapVerts = [];
-    [ageLayer, buildingInfoLayer, roadInfoLayer, parcelResultLayer].forEach(function(grp){
+    [zonePickLayer, zoneShapeLayer, ageLayer, buildingInfoLayer, roadInfoLayer, parcelResultLayer].forEach(function(grp){
       if(grp && map.hasLayer(grp)) collectLatLngs(grp, vectorSnapVerts);
-    });
-    if(bgSnapVerts.length) vectorSnapVerts = vectorSnapVerts.concat(bgSnapVerts);
-  }
-
-  // 측정·그리기 중, 화면에 표시하지 않고 현재 보이는 영역의 건물·필지 꼭짓점을
-  // 조용히 받아와 스냅 대상으로만 사용한다. (레이어를 켜지 않아도 지도 위 건물/필지에 붙음)
-  function loadSnapVectorsInView(){
-    if(!state.vworldKey) return;
-    if(map.getZoom() < 15) return;   // 너무 축소되면 스냅용 데이터 미수집
-    var b = map.getBounds();
-    var geom = 'POLYGON(('+
-      b.getWest()+' '+b.getSouth()+','+
-      b.getEast()+' '+b.getSouth()+','+
-      b.getEast()+' '+b.getNorth()+','+
-      b.getWest()+' '+b.getNorth()+','+
-      b.getWest()+' '+b.getSouth()+'))';
-    var base = '&key='+encodeURIComponent(state.vworldKey)
-      +'&domain='+encodeURIComponent(location.origin||location.href)
-      +'&geomFilter='+encodeURIComponent(geom)
-      +'&size=1000&format=json&crs=EPSG:4326';
-    // 건물(LT_C_SPBD) + 연속지적 필지경계(LP_PA_CBND_BUBUN) 둘 다 스냅 대상
-    var datasets = ['LT_C_SPBD','LP_PA_CBND_BUBUN'];
-    var collected = [], guideFeats = [], pending = datasets.length;
-    datasets.forEach(function(ds){
-      jsonpRequest(VWORLD_DATA_BASE+'?service=data&request=GetFeature&version=2.0&data='+ds+base)
-        .then(function(d){
-          try{
-            var feats = d.response.result.featureCollection.features;
-            feats.forEach(function(f){
-              pushGeomCoords(f.geometry, collected);
-              guideFeats.push({type:'Feature', geometry:f.geometry, properties:{}});
-            });
-          }catch(e){}
-        })
-        .catch(function(){})
-        .then(function(){
-          if(--pending===0){
-            bgSnapVerts = collected;
-            rebuildVectorSnap();
-            // 붙을 대상 윤곽선을 옅게 표시 (그리는 중일 때만)
-            snapGuideLayer.clearLayers();
-            if((measuring||drawing) && guideFeats.length){
-              L.geoJSON({type:'FeatureCollection', features:guideFeats}, {
-                interactive:false,
-                style:{color:'#ffd23f', weight:1, opacity:.6, fill:false, dashArray:'3 3'}
-              }).addTo(snapGuideLayer);
-              showSnapGuides();
-              toast('노란 윤곽선의 모서리에 자석처럼 붙습니다 (꼭짓점 '+collected.length+'개)');
-            }
-          }
-        });
     });
   }
 
@@ -832,16 +769,17 @@
     measuring=true; toolMeasure.classList.add('active');
     measureBox.classList.add('show');
     map.getContainer().style.cursor='crosshair';
-    rebuildVectorSnap();
-    loadSnapVectorsInView();
-    toast('꼭짓점을 찍고 더블클릭 또는 ESC로 완료');
+    // 필지 클릭 담기와 똑같이 필지 경계를 띄운다. 단 클릭은 꼭짓점 찍기에 쓰이도록
+    // 필지는 클릭 불가(interactive:false)로 그리고, 그 꼭짓점에 자석이 붙는다.
+    showParcelLayer(false);
+    toast('필지 모서리에 붙습니다 · 꼭짓점을 찍고 더블클릭/ESC로 확정');
   }
   function stopMeasure(){
     measuring=false; toolMeasure.classList.remove('active');
     map.getContainer().style.cursor='';
     hideSnapIndicator();
     hideCursorHint();
-    hideSnapGuides();
+    if(!zoneMode) hideParcelLayer();
   }
   // 그리는 중이던 도형을 버린다 (확정된 도형·필지는 그대로 유지)
   function clearMeasure(){
@@ -901,8 +839,7 @@
     drawing=true; if(toolDraw) toolDraw.classList.add('active');
     drawPts=[]; drawMarkers=[];
     map.getContainer().style.cursor='crosshair';
-    rebuildVectorSnap();
-    loadSnapVectorsInView();
+    showParcelLayer(false);
     toast('꼭짓점을 찍어 경계를 그리세요 · 시작점 스냅 또는 ESC로 완료');
   }
   function cancelDraw(){
@@ -913,7 +850,7 @@
     drawPts=[];
     hideSnapIndicator();
     hideCursorHint();
-    hideSnapGuides();
+    if(!zoneMode && !measuring) hideParcelLayer();
   }
   function updateDrawPreview(livePt){
     if(drawPreview){ map.removeLayer(drawPreview); drawPreview=null; }
@@ -1003,6 +940,7 @@
   var zoneSelected={};               // pnu -> 선택된 필지 정보 (화면 밖이어도 유지)
   var zoneShapes=[];                 // 직접 그려서 확정한 도형들 (각각 [[lat,lng],...])
   var zoneShapeLayer=L.layerGroup(); // 확정된 도형 표시용
+  var parcelLayerInteractive=true;   // 필지를 클릭으로 선택할 수 있는 상태인지
   var toolZone=document.getElementById('tool-zone-parcel');
   var zoneBox=document.getElementById('zone-box');
   var ZONE_IDLE={color:'#8fb8c9',weight:1,opacity:.9,fillColor:'#8fb8c9',fillOpacity:.05};
@@ -1024,6 +962,19 @@
   }
   function zoneList(){ return Object.keys(zoneSelected).map(function(k){ return zoneSelected[k]; }); }
 
+  // 필지 경계 표시는 '필지 클릭 담기'와 '직접 모서리 그리기'가 함께 쓴다.
+  // 담기 모드에서는 클릭 가능(선택), 그리기 모드에서는 클릭 불가(꼭짓점 찍기를 방해하지 않도록).
+  function showParcelLayer(interactive){
+    parcelLayerInteractive = !!interactive;
+    if(!map.hasLayer(zonePickLayer)) zonePickLayer.addTo(map);
+    loadParcelsForZone();
+  }
+  function hideParcelLayer(){
+    if(map.hasLayer(zonePickLayer)) map.removeLayer(zonePickLayer);
+    zonePickLayer.clearLayers(); zoneParcelLayers={};
+    rebuildVectorSnap();
+  }
+
   function startZone(){
     // 그리던 도형이 있으면 버리지 않고 구역에 확정해 둔다
     if(measuring){
@@ -1033,15 +984,13 @@
     if(drawing) cancelDraw();
     zoneMode=true; toolZone.classList.add('active');
     zoneBox.classList.add('show');
-    zonePickLayer.addTo(map);
     map.getContainer().style.cursor='pointer';
-    loadParcelsForZone();
+    showParcelLayer(true);
   }
   function stopZone(){
     zoneMode=false; toolZone.classList.remove('active');
     map.getContainer().style.cursor='';
-    if(map.hasLayer(zonePickLayer)) map.removeLayer(zonePickLayer);
-    zonePickLayer.clearLayers(); zoneParcelLayers={};
+    if(!measuring && !drawing) hideParcelLayer();
   }
   toolZone.addEventListener('click',function(){ zoneMode?stopZone():startZone(); });
 
@@ -1071,16 +1020,22 @@
         if(!pnu) return;
         var rings=geomRings(f.geometry);
         if(!rings.length) return;
-        var lyr=L.polygon(rings.map(function(r){ return [r]; }), zoneSelected[pnu]?ZONE_PICK:ZONE_IDLE);
-        lyr.bindTooltip(esc(p.jibun||''), {sticky:true});
-        lyr.on('click',function(ev){
-          L.DomEvent.stopPropagation(ev);
-          toggleParcel(pnu,p,rings,lyr);
-        });
+        var style=zoneSelected[pnu]?ZONE_PICK:ZONE_IDLE;
+        var opts=L.extend({}, style, {interactive: parcelLayerInteractive});
+        var lyr=L.polygon(rings.map(function(r){ return [r]; }), opts);
+        if(parcelLayerInteractive){
+          lyr.bindTooltip(esc(p.jibun||''), {sticky:true});
+          lyr.on('click',function(ev){
+            L.DomEvent.stopPropagation(ev);
+            toggleParcel(pnu,p,rings,lyr);
+          });
+        }
         lyr.addTo(zonePickLayer);
         zoneParcelLayers[pnu]=lyr;
       });
-      toast(feats.length+'개 필지 · 클릭해서 구역에 담으세요');
+      rebuildVectorSnap();   // 표시된 필지 꼭짓점을 스냅 대상으로 갱신
+      toast(feats.length+'개 필지 · '
+        +(parcelLayerInteractive?'클릭해서 구역에 담으세요':'모서리에 자석처럼 붙습니다'));
     }).catch(function(){ toast('필지 불러오기 실패 (키·도메인 확인)'); });
   }
 
