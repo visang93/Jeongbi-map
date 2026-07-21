@@ -573,8 +573,12 @@
         var it=d.response.body.items.item;
         if(it){
           var rec = Object.prototype.toString.call(it)==='[object Array]' ? it[0] : it;
+          // 사용승인일은 YYYYMMDD 8자리. 월·일이 0인 경우(예: 19970000)도 있어 앞 4자리만 쓴다
           var day=''+(rec.useAprDay||'');
           if(day.length>=4) y=parseInt(day.slice(0,4),10)||0;
+          // 이상값 방어 (0001 같은 값이 엉뚱한 색으로 칠해지지 않도록)
+          var nowY=new Date().getFullYear();
+          if(!(y>=1900 && y<=nowY+1)) y=0;
         }
       }catch(e){}
       bldgYearCache[sn]=y;
