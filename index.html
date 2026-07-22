@@ -549,69 +549,26 @@
     }).join('');
   })();
 
-  /* ---------- 건축물대장에서 준공연도 조회 (data.go.kr) ----------
-     VWorld 건물 데이터에는 준공연도가 없어서, 건물관리번호(bd_mgt_sn)를
-     시군구·법정동·본번·부번으로 분해해 건축물대장 표제부를 조회한다.
-     건물관리번호 25자리 = 법정동(10) + 대지구분(1) + 본번(4) + 부번(4) + 일련번호(6)
-     이 API는 CORS를 허용하므로 브라우저에서 직접 fetch 가능하다. */
-  var BLDG_LEDGER_KEY = '9b86c7b09b1c287ab4541b74ca33c2b873336321fd4ea83e04804db9d5e97618';
-  var bldgYearCache = {};   // bd_mgt_sn -> 준공연도 (0 = 대장 정보 없음). 하루 호출한도 절약용
-  var AGE_LOOKUP_MIN_ZOOM = 17;   // 건물이 너무 많아지면 호출량이 급증하므로 제한
-
-  function fetchBuildingYear(sn){
-    if(!sn || sn.length < 19) return Promise.resolve(0);
-    if(bldgYearCache.hasOwnProperty(sn)) return Promise.resolve(bldgYearCache[sn]);
-    var sg=sn.slice(0,5), bj=sn.slice(5,10), gb=sn.slice(10,11),
-        bun=sn.slice(11,15), ji=sn.slice(15,19);
-    var url='https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo'
-      +'?serviceKey='+encodeURIComponent(BLDG_LEDGER_KEY)
-      +'&sigunguCd='+sg+'&bjdongCd='+bj+'&platGbCd='+(gb==='2'?1:0)
-      +'&bun='+bun+'&ji='+ji+'&_type=json&numOfRows=1';
-    return fetch(url).then(function(r){ return r.json(); }).then(function(d){
-      var y=0;
-      try{
-        var it=d.response.body.items.item;
-        if(it){
-          var rec = Object.prototype.toString.call(it)==='[object Array]' ? it[0] : it;
-          // 사용승인일은 YYYYMMDD 8자리. 월·일이 0인 경우(예: 19970000)도 있어 앞 4자리만 쓴다
-          var day=''+(rec.useAprDay||'');
-          if(day.length>=4) y=parseInt(day.slice(0,4),10)||0;
-          // 이상값 방어 (0001 같은 값이 엉뚱한 색으로 칠해지지 않도록)
-          var nowY=new Date().getFullYear();
-          if(!(y>=1900 && y<=nowY+1)) y=0;
-        }
-      }catch(e){}
-      bldgYearCache[sn]=y;
-      return y;
-    }).catch(function(){ bldgYearCache[sn]=0; return 0; });
+  // 건축물정보 속성(useapr_day 등)에서 준공연도를 뽑는다. 값이 없거나 이상하면 0(회색).
+  function bldgYear(p){
+    var day = ''+((p && p.useapr_day) || '');
+    if(day.length < 4) return 0;
+    var y = parseInt(day.slice(0,4),10) || 0;
+    var nowY = new Date().getFullYear();
+    return (y>=1900 && y<=nowY+1) ? y : 0;
   }
-
-  // 동시 호출을 제한해 순차적으로 처리하고, 결과가 오는 대로 색을 칠한다
-  function processAgeQueue(queue){
-    if(!queue.length) return;
-    var LIMIT=5, idx=0, withYear=0;
-    function worker(){
-      if(idx>=queue.length) return Promise.resolve();
-      var item=queue[idx++];
-      return fetchBuildingYear(item.sn).then(function(y){
-        var nm = esc(item.name||'건물');
-        if(y){
-          withYear++;
-          var c=ageColor(y);
-          item.layer.setStyle({color:c, fillColor:c});
-          item.layer.setPopupContent('<b>'+nm+'</b><br>준공 '+y+'년 ('
-            +((new Date().getFullYear())-y)+'년 경과)');
-        }else{
-          item.layer.setPopupContent('<b>'+nm+'</b><br>건축물대장 정보 없음');
-        }
-        return worker();
-      });
-    }
-    var runners=[];
-    for(var k=0;k<LIMIT;k++) runners.push(worker());
-    Promise.all(runners).then(function(){
-      toast('준공연도 확인 '+withYear+'/'+queue.length+'건 · 나머지는 대장 정보 없음');
-    });
+  // 건물 팝업: 준공연도 + 층수 + 용적률·건폐율 (있는 것만 표시)
+  function bldgPopup(p){
+    var y=bldgYear(p), rows=[];
+    rows.push('준공 '+(y? y+'년 ('+((new Date().getFullYear())-y)+'년 경과)' : '정보없음'));
+    var flr=[];
+    if(parseInt(p.grnd_flr,10)>0) flr.push('지상 '+parseInt(p.grnd_flr,10)+'층');
+    if(parseInt(p.ugrnd_flr,10)>0) flr.push('지하 '+parseInt(p.ugrnd_flr,10)+'층');
+    if(flr.length) rows.push(flr.join(' · '));
+    if(parseFloat(p.vl_rat)>0) rows.push('용적률 '+p.vl_rat+'%');
+    if(parseFloat(p.bc_rat)>0) rows.push('건폐율 '+p.bc_rat+'%');
+    if(parseFloat(p.totalarea)>0) rows.push('연면적 '+fmt(parseFloat(p.totalarea))+'㎡');
+    return '<b>'+esc(p.bld_nm||'건물')+'</b><br>'+rows.join('<br>');
   }
 
   function loadBuildingLayerData(){
@@ -627,8 +584,9 @@
       b.getEast()+' '+b.getNorth()+','+
       b.getWest()+' '+b.getNorth()+','+
       b.getWest()+' '+b.getSouth()+'))';
+    // LT_C_BLDGINFO(건축물정보): 준공일(useapr_day)·용적률·건폐율 등이 데이터에 직접 들어있다.
     var url = VWORLD_DATA_BASE+'?service=data&request=GetFeature&version=2.0'
-      +'&data=LT_C_SPBD&key='+encodeURIComponent(state.vworldKey)
+      +'&data=LT_C_BLDGINFO&key='+encodeURIComponent(state.vworldKey)
       +'&domain='+encodeURIComponent(location.origin||location.href)
       +'&geomFilter='+encodeURIComponent(geom)
       +'&size=1000&format=json&crs=EPSG:4326';
@@ -637,32 +595,26 @@
     jsonpRequest(url).then(function(d){
       try{
         var feats = d.response.result.featureCollection.features;
-        var ageQueue = [];
-        var canLookup = map.getZoom() >= AGE_LOOKUP_MIN_ZOOM;
+        var withYear = 0;
         feats.forEach(function(f){
           var p = f.properties||{};
+          var y = bldgYear(p);
+          if(y) withYear++;
           if(ageOn){
-            // 준공연도를 아직 모르므로 회색으로 먼저 그리고, 조회되는 대로 색을 칠한다
-            var gray = ageColor(0);
-            var lyrA = L.geoJSON(f.geometry,{style:{color:gray,weight:1,fillColor:gray,fillOpacity:.45}});
-            lyrA.bindPopup('<b>'+esc(p.buld_nm||'건물')+'</b><br>'
-              +(canLookup?'준공연도 조회 중…':'준공연도는 줌 '+AGE_LOOKUP_MIN_ZOOM+' 이상에서 조회됩니다'));
+            var c = ageColor(y);
+            var lyrA = L.geoJSON(f.geometry,{style:{color:c,weight:1,fillColor:c,fillOpacity:.5}});
+            lyrA.bindPopup(bldgPopup(p));
             ageLayer.addLayer(lyrA);
-            if(canLookup && p.bd_mgt_sn) ageQueue.push({sn:p.bd_mgt_sn, layer:lyrA, name:p.buld_nm});
           }
           if(infoOn){
             var lyrB = L.geoJSON(f.geometry,{style:{color:'#33c9c0',weight:1.3,fillColor:'#33c9c0',fillOpacity:.12}});
-            lyrB.bindPopup(buildAttrPopup(p,'건축물정보'));
+            lyrB.bindPopup(bldgPopup(p));
             buildingInfoLayer.addLayer(lyrB);
           }
         });
         rebuildVectorSnap();
-        if(ageOn && !canLookup){
-          toast(feats.length+'개 건물 · 노후화 색상은 줌 '+AGE_LOOKUP_MIN_ZOOM+' 이상에서 표시됩니다');
-        }else{
-          toast(feats.length+'개 건물 표시');
-        }
-        processAgeQueue(ageQueue);
+        toast(feats.length+'개 건물 · 준공연도 '+withYear+'건 확인'
+          +(feats.length>withYear? ' (나머지는 연도 정보 없음)':''));
       }catch(e){ toast('건물 데이터 형식을 읽지 못했습니다'); }
     }).catch(function(){ toast('건물 정보 요청 실패 (키·도메인 확인)'); });
   }
