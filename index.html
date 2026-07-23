@@ -433,9 +433,35 @@
   var baseNormal = vwTile('Base','png');        // 일반지도
   var baseSat    = vwTile('Satellite','jpeg');  // 항공영상
   var baseHybrid = vwTile('Hybrid','png');      // 항공영상 위 도로·지명 라벨
-  // 백지도: 타일에 검정 지적 점선이 새겨져 있어, 반투명으로 깔고 흰 배경 위에 얹어
-  // 점선을 연한 회색으로 눌러 보이게 한다 (전환 시 #map 배경도 흰색으로 변경)
-  var baseWhite  = vwTile('white','png', {opacity:.38});
+  // 백지도: 타일 이미지에 검정 지적 점선이 새겨져 있다.
+  // VWorld 타일이 CORS를 허용하므로, 캔버스에서 픽셀을 직접 열어
+  // 어두운 픽셀(점선·경계선)만 흰색으로 지우고 도로(밝은 회색)는 남긴다.
+  var WhiteCleanLayer = L.GridLayer.extend({
+    createTile: function(coords, done){
+      var tile=document.createElement('canvas');
+      var size=this.getTileSize();
+      tile.width=size.x; tile.height=size.y;
+      var ctx=tile.getContext('2d');
+      var img=new Image();
+      img.crossOrigin='anonymous';
+      img.onload=function(){
+        try{
+          ctx.drawImage(img,0,0,size.x,size.y);
+          var id=ctx.getImageData(0,0,size.x,size.y), d=id.data;
+          for(var i=0;i<d.length;i+=4){
+            // 어두운 픽셀 = 지적 점선/경계선 → 흰색으로 교체 (도로 회색 ~217은 유지)
+            if(d[i]<170 && d[i+1]<170 && d[i+2]<170){ d[i]=d[i+1]=d[i+2]=255; }
+          }
+          ctx.putImageData(id,0,0);
+        }catch(e){ /* 픽셀 접근 실패 시 원본 그대로 표시 */ }
+        done(null,tile);
+      };
+      img.onerror=function(){ done(null,tile); };
+      img.src='https://api.vworld.kr/req/wmts/1.0.0/'+state.vworldKey+'/white/'+coords.z+'/'+coords.y+'/'+coords.x+'.png';
+      return tile;
+    }
+  });
+  var baseWhite = new WhiteCleanLayer({minZoom:6, maxZoom:18, attribution:'국토교통부 브이월드'});
   // 배경별 구성: 켤 레이어들 / 버튼id / 안내문구 / HUD표기
   var BASES = {
     normal: {layers:[baseNormal],           btn:'base-normal', note:'국토교통부 브이월드 공식 배경지도 · 정부 최신 데이터 기준', hud:'일반'},
