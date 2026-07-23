@@ -34,6 +34,7 @@
     z-index:1000;transition:margin-left .25s ease;
   }
   #map{flex:1;height:100%;background:#0a1319}
+  #map.white-bg{background:#fff}   /* 백지도 모드: 반투명 타일 아래 흰 배경 */
 
   /* ===== 헤더 ===== */
   .brand{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
@@ -419,21 +420,22 @@
   }
 
   /* ---------- 지도 초기화 (인천 중심) ---------- */
-  var map = L.map('map',{zoomControl:false,doubleClickZoom:false}).setView([37.4563,126.7052],14);
+  // 최대 줌 18: 백지도 타일이 18까지만 제공되고, 그 이상은 흐릿한 확대라 의미가 없음
+  var map = L.map('map',{zoomControl:false,doubleClickZoom:false,maxZoom:18}).setView([37.4563,126.7052],14);
   L.control.zoom({position:'topright'}).addTo(map);
 
   /* ---------- 배경지도 (국토교통부 브이월드 정부 공식 데이터만 사용) ----------
      스냅용 건물·필지 좌표와 같은 출처라 배경 그림과 자석 위치가 정확히 일치합니다. */
-  function vwTile(kind, ext){
-    return L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/'+state.vworldKey+'/'+kind+'/{z}/{y}/{x}.'+ext,{
-      minZoom:6, maxZoom:20, maxNativeZoom:19,   // 19단계까지 실제 타일, 그 이상은 확대 표시
-      attribution:'국토교통부 브이월드'
-    });
+  function vwTile(kind, ext, extra){
+    return L.tileLayer('https://api.vworld.kr/req/wmts/1.0.0/'+state.vworldKey+'/'+kind+'/{z}/{y}/{x}.'+ext,
+      L.extend({minZoom:6, maxZoom:18, maxNativeZoom:18, attribution:'국토교통부 브이월드'}, extra||{}));
   }
   var baseNormal = vwTile('Base','png');        // 일반지도
   var baseSat    = vwTile('Satellite','jpeg');  // 항공영상
   var baseHybrid = vwTile('Hybrid','png');      // 항공영상 위 도로·지명 라벨
-  var baseWhite  = vwTile('white','png');       // 백지도 (건물 색상 분석에 최적)
+  // 백지도: 타일에 검정 지적 점선이 새겨져 있어, 반투명으로 깔고 흰 배경 위에 얹어
+  // 점선을 연한 회색으로 눌러 보이게 한다 (전환 시 #map 배경도 흰색으로 변경)
+  var baseWhite  = vwTile('white','png', {opacity:.38});
   // 배경별 구성: 켤 레이어들 / 버튼id / 안내문구 / HUD표기
   var BASES = {
     normal: {layers:[baseNormal],           btn:'base-normal', note:'국토교통부 브이월드 공식 배경지도 · 정부 최신 데이터 기준', hud:'일반'},
@@ -455,6 +457,7 @@
     document.getElementById(nx.btn).classList.add('active');
     document.getElementById('basemap-note').textContent = nx.note;
     document.getElementById('hud-base-name').textContent = nx.hud;
+    document.getElementById('map').classList.toggle('white-bg', key==='white');
     activeBaseKey = key;
   }
   document.getElementById('base-normal').addEventListener('click',function(){ switchBase('normal'); });
@@ -529,7 +532,7 @@
       return tile;
     }
   });
-  var terrainLayer = new ElevationLayer({maxZoom:20, opacity:.72, attribution:'지형데이터 © Mapzen / AWS Terrain Tiles'});
+  var terrainLayer = new ElevationLayer({maxZoom:18, opacity:.72, attribution:'지형데이터 © Mapzen / AWS Terrain Tiles'});
 
   /* ---------- 연속지적도 (VWorld, 키 있을 때만) ---------- */
   var cadastreLayer = null;
