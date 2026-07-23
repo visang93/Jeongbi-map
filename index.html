@@ -617,7 +617,13 @@
     var y = bldgYear(p);
     if(ageOn){
       var c = ageColor(y);
-      var lyrA = L.geoJSON(f.geometry,{style:{color:c,weight:.8,fillColor:c,fillOpacity:.85}});
+      // 데이터에는 같은 자리에 건물이 겹쳐 들어있는 경우가 많다.
+      // 연도 없는 회색은 옅게, 연도 있는 색은 진하게. (겹칠 때 색이 회색에 가려지지 않도록
+      //  로드 완료 후 색칠된 건물을 맨 앞으로 올린다 — __hasYear로 표시)
+      var lyrA = L.geoJSON(f.geometry, y
+        ? {style:{color:c,weight:.8,fillColor:c,fillOpacity:.9}}
+        : {style:{color:'#9fb0ba',weight:.6,fillColor:'#9fb0ba',fillOpacity:.35}});
+      lyrA.__hasYear = !!y;
       lyrA.bindPopup(bldgPopup(p));
       ageLayer.addLayer(lyrA);
     }
@@ -676,6 +682,8 @@
         }
         // 완료
         if(seq!==buildingSeq) return;
+        // 겹친 건물 중 색칠된(연도 있는) 것을 맨 앞으로 → 회색에 가려지지 않게
+        ageLayer.eachLayer(function(l){ if(l.__hasYear && l.bringToFront) l.bringToFront(); });
         rebuildVectorSnap();
         if(totalCount > shown){
           toast('건물이 많아 '+shown+'/'+totalCount+'건만 표시 · 더 확대하면 전부 보입니다');
