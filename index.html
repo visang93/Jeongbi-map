@@ -338,6 +338,7 @@
           <div class="measure-row"><span>공시지가 합계</span><span><span class="v" id="z-jiga">0</span><span class="u">원</span></span></div>
           <div class="measure-sub" id="z-note">필지를 클릭해 담거나, 직접 모서리를 찍어 구역을 만드세요. 두 방식을 섞어 써도 됩니다.</div>
           <div id="z-list" style="max-height:120px;overflow:auto;margin-top:8px"></div>
+          <div id="z-age-report"></div>
           <div class="btn-row" style="margin-top:10px">
             <button class="btn" id="z-save">사업지로 저장</button>
             <button class="btn ghost" id="z-clear">전체 해제</button>
@@ -573,18 +574,21 @@
     {max:30, hex:'#fd8d3c', label:'25~30년'},
     {max:Infinity, hex:'#e31a1c', label:'30년 이상'}
   ];
+  // 연도 정보가 없는 건물 색: 나이 눈금(파랑~빨강)과도, 배경지도 흰·회색과도 구분되는 보라
+  var AGE_NODATA = '#9575cd';
   function ageColor(year){
-    if(!year) return '#8aa0ad';
+    if(!year) return AGE_NODATA;
     var age = (new Date().getFullYear()) - year;
     for(var i=0;i<AGE_BANDS.length;i++){ if(age < AGE_BANDS[i].max) return AGE_BANDS[i].hex; }
     return AGE_BANDS[AGE_BANDS.length-1].hex;
   }
-  // 범례 UI 렌더링
+  // 범례 UI 렌더링 (정보없음 포함)
   (function renderAgeLegend(){
     var box=document.getElementById('age-scale');
     box.innerHTML = AGE_BANDS.map(function(b){
       return '<div class="elev-row"><span class="elev-swatch" style="background:'+b.hex+'"></span>'+b.label+'</div>';
-    }).join('');
+    }).join('')
+    +'<div class="elev-row"><span class="elev-swatch" style="background:'+AGE_NODATA+'"></span>정보없음 (연도 미등록)</div>';
   })();
 
   // 건축물정보 속성(useapr_day 등)에서 준공연도를 뽑는다. 값이 없거나 이상하면 0(회색).
@@ -618,11 +622,11 @@
     if(ageOn){
       var c = ageColor(y);
       // 데이터에는 같은 자리에 건물이 겹쳐 들어있는 경우가 많다.
-      // 연도 없는 회색은 옅게, 연도 있는 색은 진하게. (겹칠 때 색이 회색에 가려지지 않도록
-      //  로드 완료 후 색칠된 건물을 맨 앞으로 올린다 — __hasYear로 표시)
+      // (겹칠 때 색이 정보없음에 가려지지 않도록 로드 완료 후 색칠 건물을 맨 앞으로 — __hasYear)
+      // 완전 불투명으로 칠해 백지도 타일에 박힌 건물 윤곽 점선이 비쳐 보이지 않게 한다.
       var lyrA = L.geoJSON(f.geometry, y
-        ? {style:{color:c,weight:.8,fillColor:c,fillOpacity:.9}}
-        : {style:{color:'#9fb0ba',weight:.6,fillColor:'#9fb0ba',fillOpacity:.35}});
+        ? {style:{color:c,weight:.8,fillColor:c,fillOpacity:1}}
+        : {style:{color:AGE_NODATA,weight:.8,fillColor:AGE_NODATA,fillOpacity:1}});
       lyrA.__hasYear = !!y;
       lyrA.bindPopup(bldgPopup(p));
       ageLayer.addLayer(lyrA);
@@ -1009,7 +1013,16 @@
     siteLayers[site.id]=layer;
   }
 
+  /* ---------- 자동 저장 (localStorage) ----------
+     사업지 목록이 바뀔 때마다(저장·이름변경·삭제·불러오기) 브라우저에 자동 저장.
+     새로고침하거나 다시 접속해도 그대로 유지된다. 파일 내보내기는 백업용으로 그대로. */
+  var SITES_STORE_KEY = 'jeongbi_sites_v1';
+  function saveSites(){
+    try{ localStorage.setItem(SITES_STORE_KEY, JSON.stringify(state.sites)); }catch(e){}
+  }
+
   function renderSiteList(){
+    saveSites();   // 목록이 그려지는 모든 시점 = 목록이 바뀐 시점
     var box=document.getElementById('site-list');
     if(state.sites.length===0){
       box.innerHTML='<div class="site-empty">아직 저장된 사업지가 없습니다.<br>경계를 그리면 여기에 추가됩니다.</div>';
@@ -1184,6 +1197,99 @@
         +'<span>'+esc(p.jibun||p.pnu)+'</span>'
         +'<span style="color:var(--accent);white-space:nowrap">'+fmt(p.area)+'㎡</span></div>';
     }).join('');
+    scheduleZoneAgeReport();
+  }
+
+  /* ---------- 구역 내 건물 노후도 자동 판정 ----------
+     담은 필지·그린 도형 안의 건물을 건축물정보에서 받아,
+     30년 이상 건물 비율을 계산해 재개발 노후도 요건(2/3) 충족 여부를 약식 표시한다. */
+  var zoneAgeTimer=null, zoneAgeSeq=0, zoneAgeSig='__init__';
+  // 구역 구성이 실제로 바뀌었는지 판별용 서명 (그리기 중 마우스 이동마다 재분석하지 않도록)
+  function zoneSig(){ return Object.keys(zoneSelected).sort().join(',')+'|'+zoneShapes.length; }
+  function zoneRingsAll(){
+    var rings=[];
+    zoneList().forEach(function(p){ p.rings.forEach(function(r){ rings.push(r); }); });
+    zoneShapes.forEach(function(r){ rings.push(r); });
+    return rings;
+  }
+  // 점이 다각형 안에 있는지 (ray casting)
+  function pointInRing(lat,lng,ring){
+    var inside=false;
+    for(var i=0,j=ring.length-1;i<ring.length;j=i++){
+      var yi=ring[i][0], xi=ring[i][1], yj=ring[j][0], xj=ring[j][1];
+      if(((yi>lat)!==(yj>lat)) && (lng < (xj-xi)*(lat-yi)/(yj-yi)+xi)) inside=!inside;
+    }
+    return inside;
+  }
+  function geomCentroidLatLng(geom){
+    var sx=0, sy=0, n=0;
+    (function w(a){ if(typeof a[0]==='number'){ sx+=a[0]; sy+=a[1]; n++; return; }
+      for(var i=0;i<a.length;i++) w(a[i]); })(geom.coordinates||[]);
+    return n? [sy/n, sx/n] : null;   // [lat,lng]
+  }
+  function scheduleZoneAgeReport(){
+    var sig=zoneSig();
+    if(sig===zoneAgeSig) return;   // 구역 구성이 그대로면 재분석하지 않음
+    zoneAgeSig=sig;
+    clearTimeout(zoneAgeTimer);
+    var box=document.getElementById('z-age-report');
+    if(!zoneRingsAll().length){ box.innerHTML=''; return; }
+    box.innerHTML='<div class="measure-sub">구역 내 건물 노후도 분석 중…</div>';
+    zoneAgeTimer=setTimeout(runZoneAgeReport, 700);   // 필지를 연달아 클릭할 때 과도한 호출 방지
+  }
+  function runZoneAgeReport(){
+    var rings=zoneRingsAll();
+    var box=document.getElementById('z-age-report');
+    if(!rings.length){ box.innerHTML=''; return; }
+    var seq=++zoneAgeSeq;
+    var minLat=90,maxLat=-90,minLng=180,maxLng=-180;
+    rings.forEach(function(r){ r.forEach(function(p){
+      if(p[0]<minLat)minLat=p[0]; if(p[0]>maxLat)maxLat=p[0];
+      if(p[1]<minLng)minLng=p[1]; if(p[1]>maxLng)maxLng=p[1]; }); });
+    var geom='POLYGON(('+minLng+' '+minLat+','+maxLng+' '+minLat+','+maxLng+' '+maxLat+','+minLng+' '+maxLat+','+minLng+' '+minLat+'))';
+    var url=VWORLD_DATA_BASE+'?service=data&request=GetFeature&version=2.0'
+      +'&data=LT_C_BLDGINFO&key='+encodeURIComponent(state.vworldKey)
+      +'&domain='+encodeURIComponent(location.origin||location.href)
+      +'&geomFilter='+encodeURIComponent(geom)
+      +'&size=1000&format=json&crs=EPSG:4326';
+    jsonpRequest(url).then(function(d){
+      if(seq!==zoneAgeSeq) return;
+      var feats=[]; try{ feats=d.response.result.featureCollection.features||[]; }catch(e){}
+      var tot=0, old30=0, unknown=0, nowY=new Date().getFullYear();
+      feats.forEach(function(f){
+        var c=geomCentroidLatLng(f.geometry);
+        if(!c) return;
+        var inside=false;
+        for(var i=0;i<rings.length;i++){ if(pointInRing(c[0],c[1],rings[i])){ inside=true; break; } }
+        if(!inside) return;
+        tot++;
+        var y=bldgYear(f.properties||{});
+        if(!y){ unknown++; return; }
+        if(nowY-y>=30) old30++;
+      });
+      if(seq!==zoneAgeSeq) return;
+      if(!tot){ box.innerHTML='<div class="measure-sub">구역 안에서 건물을 찾지 못했습니다</div>'; return; }
+      var known=tot-unknown;
+      var pct= known? Math.round(old30*1000/known)/10 : 0;
+      var meets = known>0 && (old30*3 >= known*2);   // 2/3 이상
+      var verdict;
+      if(!known){
+        verdict='<b style="color:var(--ink-faint)">연도 정보가 없어 판정 불가</b>';
+      }else if(meets){
+        verdict='<b style="color:var(--ok)">✓ 재개발 노후도 요건(2/3) 충족</b>';
+      }else{
+        verdict='<b style="color:var(--warn)">✗ 노후도 요건(2/3) 미달</b>';
+      }
+      box.innerHTML=
+        '<div class="measure-sub" style="border-top:1px dashed var(--line-soft);margin-top:8px;padding-top:8px">'
+        +'구역 내 건물 <b style="color:var(--ink)">'+tot+'동</b>'
+        +(unknown? ' (연도미상 '+unknown+'동 제외)':'')
+        +'<br>30년 이상 <b style="color:var(--ink)">'+old30+'동</b>'
+        +(known? ' · 확인분의 <b style="color:var(--ink)">'+pct+'%</b>':'')
+        +'<br>'+verdict
+        +'<br><span style="color:var(--ink-faint)">준공연도 기준 약식 판정 · 법적 노후불량건축물 판단과는 다를 수 있음</span>'
+        +'</div>';
+    }).catch(function(){ if(seq===zoneAgeSeq) box.innerHTML='<div class="measure-sub">노후도 분석 실패 (네트워크 확인)</div>'; });
   }
 
   function clearZone(){
@@ -1513,6 +1619,25 @@
     toastTimer=setTimeout(function(){t.classList.remove('show');},2200);
   }
   function esc(s){ return (''+s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+  // 저장돼 있던 사업지 자동 복원
+  (function loadSavedSites(){
+    try{
+      var raw = localStorage.getItem(SITES_STORE_KEY);
+      if(!raw) return;
+      var arr = JSON.parse(raw);
+      if(!(arr && arr.length)) return;
+      arr.forEach(function(s){
+        if(state.sites.some(function(x){ return x.id===s.id; })) return;
+        state.sites.push(s);
+        var layer = buildSiteLayer(s);
+        renderSite(s, layer);
+        drawnItems.addLayer(layer);
+      });
+      renderSiteList();
+      toast('저장된 사업지 '+state.sites.length+'건 불러옴');
+    }catch(e){}
+  })();
 
   setTimeout(function(){ map.invalidateSize(); },200);
 })();
